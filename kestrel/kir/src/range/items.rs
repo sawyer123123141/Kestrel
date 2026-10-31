@@ -38,11 +38,13 @@ impl<'a> Cx<'a> {
         Cx { m, a, classes, events, summaries, owners: Owners::new(m), left_calls }
     }
 
-    /// The report of user function `home`, with the closures `with[1..]` inside it.
+    /// The report of user function `home`, with the closures `with[1..]` inside it (and, for a
+    /// reloadable program's `setup`, `init`, which builds the constants before it).
     pub fn func_report(&mut self, home: usize, with: &[usize]) -> FuncReport {
         let f = &self.m.funcs[home];
         let name = super::report::display_name(self.m, FuncIdx(home as u32));
         let mut report = FuncReport { func: FuncIdx(home as u32), name, lines: f.lines, ..FuncReport::default() };
+        let first_line = f.lines.0;
         let (mut checks, mut others) = (Vec::new(), Vec::new());
         for &g in with {
             let c = &self.a.funcs[g];
@@ -51,8 +53,16 @@ impl<'a> Cx<'a> {
                 report.gave_up = true;
                 report.stopped = if c.deep { "its code nests too deeply" } else { "it took too long to analyse" }.to_string();
             }
-            checks.extend(self.checks_of(g));
-            others.extend(self.events_of(g));
+            let (mut own_checks, mut own_others) = (self.checks_of(g), self.events_of(g));
+            // What `init`'s own code does (the arena) is at the first line of the function it runs
+            // before, as it is when inlined into a `main`.
+            if self.m.init == Some(FuncIdx(g as u32)) {
+                for item in own_checks.iter_mut().chain(own_others.iter_mut()).filter(|i| i.line == 0) {
+                    item.line = first_line;
+                }
+            }
+            checks.extend(own_checks);
+            others.extend(own_others);
             self.bodies(g, FuncIdx(home as u32), &mut report.par_bodies);
         }
         report.items = self.arrange(Some(FuncIdx(home as u32)), checks, others);

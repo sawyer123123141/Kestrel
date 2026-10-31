@@ -85,9 +85,81 @@ fn reload_drop_drops_the_states_gpu_objects() {
     assert!(matches!(s.ty, KTy::Struct(_)));
     let text = format!("{:?}", drop.body);
     assert!(text.contains("DropGpu"), "{text}");
-    // A user's own `pub reload_drop` isn't exported beside it: the host finds the generated one.
-    let own = GAME.to_string() + "pub reload_drop(n: int) -> int { n }\n";
-    let m = module(&own);
-    assert!(!func(&m, "reload_drop").exported);
-    assert!(func(&m, "__kestrel_reload_drop").exported);
+}
+
+fn hash(src: &str) -> u64 {
+    module(src).reload.expect("a reloadable program").setup_hash
+}
+
+#[test]
+fn the_setup_hash_reads_the_code_not_its_text() {
+    // String literals that look like the debug text of an index are only strings: no hang, no
+    // panic, and the hash still sees them.
+    let tricky = GAME.replace("pub setup() -> Game {\n", "pub setup() -> Game {\n    print(\"ElemIdx(\")\n    print(\"StructIdx(999)\")\n");
+    let base = hash(&tricky);
+    assert_ne!(hash(&tricky.replace("StructIdx(999)", "StructIdx(998)")), base);
+    // Code moved down by blank lines and a comment: the same hash.
+    let moved = tricky.replace("pub setup", "// the state\n\n\npub setup");
+    assert_eq!(hash(&moved), base);
+}
+
+const TWO_STRUCTS: &str = "struct Pos {
+    x: int
+    y: int
+}
+
+struct Game {
+    at: Pos
+    n: int
+}
+
+pub setup() -> Game {
+    Game(at: Pos(x: 1, y: 2), n: 0)
+}
+
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+";
+
+#[test]
+fn the_setup_hash_ignores_the_order_of_declarations() {
+    let base = hash(TWO_STRUCTS);
+    let pos = "struct Pos {\n    x: int\n    y: int\n}\n\n";
+    let swapped = TWO_STRUCTS.replace(pos, "").replace("pub setup", &format!("{pos}pub setup"));
+    assert_ne!(swapped, TWO_STRUCTS);
+    assert_eq!(hash(&swapped), base);
+    // A constant inside `setup` changed: another hash.
+    assert_ne!(hash(&TWO_STRUCTS.replace("x: 1, y: 2", "x: 1, y: 3")), base);
+}
+
+const WITH_CONSTANTS: &str = "let LEVELS = [10, 20, 30]
+let OTHER = [4, 5]
+
+struct Game {
+    n: int
+}
+
+pub setup() -> Game {
+    Game(n: LEVELS[1])
+}
+
+pub frame(var s: Game) -> bool {
+    s.n += OTHER[0]
+    s.n < 100
+}
+";
+
+#[test]
+fn the_setup_hash_names_the_heap_constants_setup_reads() {
+    let base = hash(WITH_CONSTANTS);
+    // Reformatted, with a function before `setup` that reads the other constant first: `LEVELS`
+    // gets another global, and the hash stays.
+    let reformatted = WITH_CONSTANTS
+        .replace("struct Game {", "pure first() -> int {\n    OTHER[1]\n}\n\n\nstruct Game {")
+        .replace("pub frame", "\n// one frame\npub frame");
+    assert_eq!(hash(&reformatted), base);
+    // Another constant read: another hash.
+    assert_ne!(hash(&WITH_CONSTANTS.replace("LEVELS[1]", "OTHER[1]")), base);
 }

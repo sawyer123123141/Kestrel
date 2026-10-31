@@ -37,6 +37,6 @@ pub fn without_generated_main(m: &mut kestrel_kir::Module) {
     }
     let Some(main) = m.main.take() else { return };
     assert_eq!(main.0 as usize + 1, m.funcs.len(), "lowering adds the generated `main` last");
-    assert!(m.not_inlined.is_empty() && m.analysed.is_none(), "the generated `main` is taken out before optimizing");
+    assert!(m.not_inlined.is_empty() && m.hoisted.is_empty() && m.analysed.is_none(), "the generated `main` is taken out before optimizing");
     m.funcs.pop();
 }

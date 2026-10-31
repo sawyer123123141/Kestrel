@@ -40,11 +40,12 @@ pub(crate) fn check_entry(program: &Program, t: &mut Tables, diags: &mut Vec<Dia
         }
         return;
     }
+    // Private functions called `setup` or `frame` are only helpers: the program lacks a `main`.
+    if !setup.into_iter().chain(frame).any(is_pub) {
+        diags.push(Diagnostic::error(Span::new(0, 0), "program needs a `main()` function"));
+        return;
+    }
     let (s, f) = match (setup, frame) {
-        (None, None) => {
-            diags.push(Diagnostic::error(Span::new(0, 0), "program needs a `main()` function"));
-            return;
-        }
         (Some(s), Some(f)) => (s, f),
         (one, other) => {
             let id = one.or(other).expect("one of them");
@@ -88,6 +89,10 @@ pub(crate) fn check_entry(program: &Program, t: &mut Tables, diags: &mut Vec<Dia
             let msg = format!("`setup`'s state can't hold {holds}; keep {keep} out of the state");
             diags.push(Diagnostic::error(si.span, msg).with_help(format!("{part} is `{}`", fault.path)));
         }
+    }
+    // The host finds the generated `reload_drop` by that name among the exports.
+    if let Some(own) = find("reload_drop").filter(|&id| is_pub(id)) {
+        diags.push(Diagnostic::error(t.func(own).span, "`reload_drop` is a name the compiler uses; pick another"));
     }
     if diags.len() == errors {
         t.reload = Some(ReloadShape { setup: s, frame: f, state });

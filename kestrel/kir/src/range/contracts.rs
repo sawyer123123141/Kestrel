@@ -14,7 +14,7 @@ use kestrel_syntax::Span;
 
 use super::events::{self, Event, Unknown, What, PAR_ARENAS};
 use super::items::arrange;
-use super::report::{classes, Class, Item, ItemKind, Owners};
+use super::report::{classes, constants_home, Class, Item, ItemKind, Owners};
 use super::summary::{self, Chain, Part, Stop, Summary};
 use super::Analysis;
 use crate::ir::*;
@@ -166,7 +166,7 @@ impl Cx<'_> {
                 out.push(Failure::new(ALL, words::stopped(m, stop, g, target == Some(g)), Help::Report));
             }
         }
-        if copy.block.is_none() && target.is_some() && target.map(|t| FuncIdx(t as u32)) == m.main {
+        if copy.block.is_none() && target.is_some() && target.map(|t| FuncIdx(t as u32)) == constants_home(m) {
             if let Some(init) = m.init {
                 self.constants(init, m.funcs[copy.func].lines.0, home, &mut out);
             }

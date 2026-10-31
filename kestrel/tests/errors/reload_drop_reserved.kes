@@ -1,0 +1,16 @@
+// The compiler exports a reloadable program's `reload_drop` itself, for the host.
+struct Game {
+    n: int
+}
+pub setup() -> Game {
+    Game(n: 0)
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+pub reload_drop(n: int) -> int {
+    n
+}
+
+// error 12: `reload_drop` is a name the compiler uses; pick another

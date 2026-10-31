@@ -1,7 +1,9 @@
 //! Export thunks: one entry point of a single shape per exported (`pub`)
-//! function, `fn(args: *const u8, ret: *mut u8)`, so a host like the Godot
+//! function, `fn(args: *mut u8, ret: *mut u8)`, so a host like the Godot
 //! add-on can call any of them. Arguments sit in a byte buffer at the
-//! offsets `ExportInfo` gives; the result is written at `ret`.
+//! offsets `ExportInfo` gives; the result is written at `ret`. A parameter
+//! passed by pointer (`var`, or an aggregate) is passed as its place in that
+//! buffer, so a `var` parameter's changes are written back into it.
 
 use cranelift_codegen::ir::{AbiParam, Function, InstBuilder, MemFlagsData, Signature};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -76,7 +78,7 @@ pub(crate) fn export_ty(m: &kir::Module, ty: KTy) -> ExportTy {
 /// is `kestrel_rt_*`; no symbol made from a Kestrel name starts with `__`, so this can't collide.
 const INIT_THUNK_SYMBOL: &str = "__kestrel_init_thunk";
 
-/// The signature every thunk has: `fn(args: *const u8, ret: *mut u8)`.
+/// The signature every thunk has: `fn(args: *mut u8, ret: *mut u8)`.
 fn thunk_signature<M: Module>(module: &M) -> Signature {
     let ptr = module.target_config().pointer_type();
     let mut sig = Signature::new(module.isa().default_call_conv());
@@ -98,10 +100,10 @@ pub(crate) fn define_thunks<M: Module>(module: &mut M, m: &kir::Module, ids: &[F
             arg_offsets.push(at);
             end = at + size;
         }
-        // A generated export (a reloadable program's `__kestrel_reload_drop`) is found by its name
-        // without the compiler's prefix; its thunk's symbol keeps the whole name, so a user's own
-        // function can't collide with it.
-        let name = f.name.strip_prefix("__kestrel_").unwrap_or(&f.name);
+        // A reloadable program's generated `__kestrel_reload_drop` is found as `reload_drop` (the
+        // checker refuses a `pub reload_drop` of the program's own); its thunk's symbol keeps the
+        // whole name. Every other export keeps its name.
+        let name = if f.name == kir::RELOAD_DROP { "reload_drop" } else { &f.name };
         let info = ExportInfo {
             name: name.to_string(),
             params: param_tys.iter().map(|&t| export_ty(m, t)).collect(),

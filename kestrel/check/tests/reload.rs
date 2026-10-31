@@ -141,3 +141,19 @@ pub frame(var s: Game) -> bool {
     let (_, errors) = run(with_arena, false);
     assert_eq!(errors, ["`setup`'s state can't hold an `Arena`; keep arenas out of the state"]);
 }
+
+#[test]
+fn private_functions_named_setup_or_frame_dont_make_a_reloadable_program() {
+    let needs_main = ["program needs a `main()` function"];
+    assert_eq!(run(&SHAPE.replace("pub ", ""), false).1, needs_main);
+    let only_frame = "struct Game {\n    n: int\n}\nframe(var s: Game) -> bool {\n    false\n}\n";
+    assert_eq!(run(only_frame, false).1, needs_main);
+}
+
+#[test]
+fn a_reloadable_program_cant_export_its_own_reload_drop() {
+    let own = format!("{SHAPE}pub reload_drop(n: int) -> int {{\n    n\n}}\n");
+    assert_eq!(run(&own, false).1, ["`reload_drop` is a name the compiler uses; pick another"]);
+    // A private one isn't exported, so it stays.
+    assert!(run(&own.replace("pub reload_drop", "reload_drop"), false).1.is_empty());
+}

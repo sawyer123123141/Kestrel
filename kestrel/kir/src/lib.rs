@@ -20,7 +20,7 @@ pub mod visit_mut;
 
 pub use ir::*;
 pub use layout::*;
-pub use lower::lower;
+pub use lower::{lower, RELOAD_DROP};
 pub use native::native_symbol;
 pub use stack_envs::check_stack_envs;
 

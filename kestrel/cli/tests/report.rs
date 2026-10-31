@@ -390,21 +390,19 @@ fn items(text: &str) -> Vec<String> {
     out
 }
 
-/// The checks and the other ways to fail of the totals line: "4 checks, 1 removed, 3 left" and
-/// "1 other way to fail".
-fn check_totals(text: &str) -> (String, String) {
-    let total = text.lines().find(|l| l.starts_with("total: ")).expect("a totals line");
-    let parts: Vec<&str> = total["total: ".len()..].split("; ").collect();
-    (parts[0].to_string(), parts[2].to_string())
+/// The totals line: "total: 4 checks, 1 removed, 3 left; 3 allocations; 1 other way to fail".
+fn totals(text: &str) -> &str {
+    text.lines().find(|l| l.starts_with("total: ")).expect("a totals line")
 }
 
 #[test]
 fn a_reloadable_program_reports_like_its_main_twin() {
     // The `main` the compiler makes for a reloadable program is generated code, which the report
-    // leaves out; `setup` and `frame` are `pub`, so their own copies list their checks. The twin
+    // leaves out; `setup` and `frame` are `pub`, so their own copies list their checks, and the
+    // constants, which the host builds before it calls `setup`, are listed under `setup`. The twin
     // can't make them `pub` (a `main` program with both is refused), so the inliner folds them into
-    // its `main`, which lists the same checks under its own row. The checks, their texts and the
-    // totals of checks and failures agree; the twin's `main` also builds the constants.
+    // its `main`, which lists the same items under its own row. Every item and the totals agree;
+    // only the line the constants' arena is made at is each program's first line of code to run.
     let programs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/programs");
     let report = |file: &str| {
         let src = fs::read_to_string(programs.join(file)).unwrap();
@@ -418,9 +416,13 @@ fn a_reloadable_program_reports_like_its_main_twin() {
     let (reloadable, twin) = (report("reload_shape.kes"), report("reload_shape_main.kes"));
     assert!(!reloadable.contains("function `main`"), "{reloadable}");
     assert!(twin.contains("  function `main` (line 32)"), "{twin}");
+    assert!(reloadable.contains("  function `setup` (line 19): no checks, 2 allocations\n"), "{reloadable}");
     assert!(reloadable.contains("  function `frame` (line 24): 3 checks left (1 removed), 1 allocation, 1 other way to fail\n"), "{reloadable}");
-    assert_eq!(check_totals(&reloadable), check_totals(&twin));
-    let constants = ["line 32: allocation: makes the arena the constants live in", "line 5: allocation: `[...]` makes a new array"];
-    let twin_items: Vec<String> = items(&twin).into_iter().filter(|i| !constants.contains(&i.as_str())).collect();
-    assert_eq!(items(&reloadable), twin_items, "{reloadable}\n{twin}");
+    assert_eq!(totals(&reloadable), totals(&twin));
+    assert_eq!(totals(&twin), "total: 4 checks, 1 removed, 3 left; 3 allocations; 1 other way to fail");
+    let arena = |line: u32| format!("line {line}: allocation: makes the arena the constants live in");
+    let mut reloadable_items: Vec<String> = items(&reloadable).into_iter().map(|i| if i == arena(19) { arena(32) } else { i }).collect();
+    reloadable_items.sort();
+    assert!(reloadable_items.contains(&arena(32)), "{reloadable}");
+    assert_eq!(reloadable_items, items(&twin), "{reloadable}\n{twin}");
 }

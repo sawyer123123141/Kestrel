@@ -5,23 +5,18 @@
 
 use kestrel_check::{ReloadShape, Tables};
 
-use super::bytes_fingerprint::{checksum_of_text, description};
+use super::bytes_fingerprint::description;
 use super::helpers::{expr, Helpers};
 use super::kty;
 use crate::ir::*;
-use crate::visit_mut::{walk_expr, walk_stmt, VisitMut};
 
 /// The name of the generated `reload_drop`. Its export drops the compiler's prefix, so a host
 /// finds it as `reload_drop` (see `kestrel_codegen::export`).
-pub(crate) const RELOAD_DROP: &str = "__kestrel_reload_drop";
+pub const RELOAD_DROP: &str = "__kestrel_reload_drop";
 
-/// Adds `reload_drop` and the generated `main` to `helpers` (the user's functions are `funcs`);
-/// returns the `main`. A user's own `pub reload_drop` stops being exported, so the host's lookup
-/// by name finds only the generated one.
-pub(super) fn generate(shape: &ReloadShape, t: &Tables, funcs: &mut [Func], helpers: &mut Helpers) -> FuncIdx {
-    for f in funcs.iter_mut().filter(|f| f.name == "reload_drop") {
-        f.exported = false;
-    }
+/// Adds `reload_drop` and the generated `main` to `helpers`, after the user's functions;
+/// returns the `main`. (The checker refuses a `pub reload_drop` of the program's own.)
+pub(super) fn generate(shape: &ReloadShape, t: &Tables, helpers: &mut Helpers) -> FuncIdx {
     let state = kty(shape.state);
     let s = Place::local(LocalIdx(0));
     let drop_body = helpers.drop_stmts(s.clone(), state, t);
@@ -73,71 +68,7 @@ fn place(helpers: &mut Helpers, f: Func) -> FuncIdx {
 pub(super) fn info(shape: &ReloadShape, t: &Tables, m: &Module) -> ReloadInfo {
     let state = kty(shape.state);
     let (state_size, state_align) = m.size_align(state);
-    let setup_hash = checksum_of_text(setup_text(m, FuncIdx(shape.setup.0)).as_bytes()) as u64;
+    let setup_hash = super::reload_hash::setup_hash(m, FuncIdx(shape.setup.0));
     ReloadInfo { state_description: description(state, t), setup_hash, state_size, state_align }
 }
 
-/// `setup`'s locals and body as text, without lines and with each index into the module (a
-/// function, struct, enum or element type) written as what it names, so the text changes when
-/// `setup` does and not when code around it moves.
-fn setup_text(m: &Module, setup: FuncIdx) -> String {
-    let f = &m.funcs[setup.0 as usize];
-    let mut body = f.body.clone();
-    NoLines.visit_stmts(&mut body);
-    let mut text = format!("{:?} {:?} {:?}", f.ret, f.locals, body);
-    // An element type may name another; each pass writes out one level.
-    while text.contains("ElemIdx(") {
-        text = replace_ids(&text, "ElemIdx(", |i| format!("Elem[{:?}]", m.elems[i]));
-    }
-    text = replace_ids(&text, "StructIdx(", |i| format!("Struct[{}]", m.structs[i].name));
-    text = replace_ids(&text, "EnumIdx(", |i| format!("Enum[{}]", m.enums[i].name));
-    replace_ids(&text, "FuncIdx(", |i| format!("Func[{}]", stable_name(&m.funcs[i].name)))
-}
-
-/// A function's name without the index a generated one ends with (`__kestrel_copy_57`).
-fn stable_name(name: &str) -> &str {
-    match name.strip_prefix("__kestrel_") {
-        Some(_) => name.trim_end_matches(|c: char| c.is_ascii_digit()),
-        None => name,
-    }
-}
-
-/// `text` with each `<prefix><n>)` written as `name(n)`.
-fn replace_ids(text: &str, prefix: &str, name: impl Fn(usize) -> String) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find(prefix) {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + prefix.len()..];
-        let digits = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
-        match after[..digits].parse::<usize>() {
-            Ok(n) if after[digits..].starts_with(')') => {
-                out.push_str(&name(n));
-                rest = &after[digits + 1..];
-            }
-            _ => {
-                out.push_str(prefix);
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Sets every line in the code it visits to 0.
-struct NoLines;
-
-impl VisitMut for NoLines {
-    fn visit_stmt(&mut self, s: &mut Stmt) {
-        if let Stmt::SetLine(line) | Stmt::Call(_, _, line) = s {
-            *line = 0;
-        }
-        walk_stmt(self, s);
-    }
-
-    fn visit_expr(&mut self, e: &mut Expr) {
-        e.line = 0;
-        walk_expr(self, e);
-    }
-}

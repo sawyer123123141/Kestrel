@@ -1,0 +1,15 @@
+// The host builds the heap constants before it calls `setup`, as a `main` builds them first.
+let STEPS = [10, 20, 30]
+struct Game {
+    n: int
+}
+@prove(no_alloc)
+pub setup() -> Game {
+    Game(n: STEPS[0])
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+
+// error 6: `setup` can't be proven `no_alloc`: it builds the program's constants first, which makes the arena the constants live in

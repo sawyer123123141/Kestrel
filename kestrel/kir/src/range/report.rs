@@ -140,6 +140,18 @@ pub(super) fn classes(m: &Module) -> Vec<Class> {
         .collect()
 }
 
+/// The function the heap constants are built before: `main`, or a reloadable program's `setup`
+/// (the host builds them before it calls `setup`; the `main` the compiler makes for everything else
+/// is generated code, which the report leaves out). The report lists what building them does under
+/// this function, and its `@prove` contracts count it.
+pub(super) fn constants_home(m: &Module) -> Option<FuncIdx> {
+    if m.reload.is_some() {
+        // The checker makes sure it is the entry file's `pub setup` (a module's is `module.setup`).
+        return m.funcs.iter().position(|f| f.name == "setup" && f.exported).map(|i| FuncIdx(i as u32));
+    }
+    m.main
+}
+
 /// Whether the compiler made function `g` (it has no lines of its own).
 pub fn is_generated(m: &Module, g: FuncIdx) -> bool {
     m.funcs[g.0 as usize].lines == (0, 0)
@@ -225,6 +237,12 @@ pub fn build(m: &Module, a: &Analysis) -> Report {
         }
     }
     let inlined = inlined_into_others(m, &classes, &called, &made);
+    // A user's `main` lists the constants through its own code (lowering puts the call to `init`
+    // first in it, and the inliner expands it); a reloadable program's `setup` lists `init` itself.
+    let constants = match (constants_home(m), m.init) {
+        (Some(home), Some(init)) if Some(home) != m.main => Some((home.0 as usize, init.0 as usize)),
+        _ => None,
+    };
     let mut funcs = Vec::new();
     for (i, class) in classes.iter().enumerate() {
         if *class != Class::User {
@@ -232,6 +250,7 @@ pub fn build(m: &Module, a: &Analysis) -> Report {
         }
         let mut with = vec![i];
         with.extend(closures.get(&i).into_iter().flatten().copied());
+        with.extend(constants.filter(|&(home, _)| home == i).map(|(_, init)| init));
         // (Every copy of a generic has the same lines, so code can't be traced to one: a copy
         // nothing refers to has been inlined everywhere.)
         let is_copy = m.copies.contains_key(&FuncIdx(i as u32));

@@ -33,6 +33,7 @@ mod par;
 mod placeholders;
 mod prove;
 mod reload;
+mod reload_hash;
 mod remove;
 mod scopes;
 mod scratch;
@@ -58,6 +59,7 @@ use kestrel_syntax::{LineIndex, Span};
 use crate::ir::*;
 use crate::native::native_symbol;
 use helpers::Helpers;
+pub use reload::RELOAD_DROP;
 
 /// Lowers a checked program. `t` must come from a `check` with no errors.
 pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
@@ -67,7 +69,7 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
     let mut funcs: Vec<Func> = (0..t.fns.len()).map(|i| lower_fn(program, t, lines, FnId(i as u32), &mut helpers)).collect();
     let init = consts::lower_init(program, t, lines, &mut helpers);
     // A reloadable program's generated `main` and `reload_drop` (see `reload`).
-    let reload_main = t.reload.as_ref().map(|shape| reload::generate(shape, t, &mut funcs, &mut helpers));
+    let reload_main = t.reload.as_ref().map(|shape| reload::generate(shape, t, &mut helpers));
     funcs.append(&mut helpers.funcs);
     scratch::strip_idle_scratch(&mut funcs, &helpers.sort_idle);
     let elems = placeholders::elems(t);
