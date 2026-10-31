@@ -1,0 +1,17 @@
+// A program is either a `main` program or a reloadable one, never both.
+struct Game {
+    n: int
+}
+pub setup() -> Game {
+    Game(n: 0)
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+main() {
+    var s = setup()
+    while frame(var s) {}
+}
+
+// error 5: a program has `main` or `setup` and `frame`, not both

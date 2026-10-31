@@ -32,6 +32,7 @@ mod matching;
 mod par;
 mod placeholders;
 mod prove;
+mod reload;
 mod remove;
 mod scopes;
 mod scratch;
@@ -65,10 +66,12 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
     helpers.proves = prove::Proves::new(program, t);
     let mut funcs: Vec<Func> = (0..t.fns.len()).map(|i| lower_fn(program, t, lines, FnId(i as u32), &mut helpers)).collect();
     let init = consts::lower_init(program, t, lines, &mut helpers);
+    // A reloadable program's generated `main` and `reload_drop` (see `reload`).
+    let reload_main = t.reload.as_ref().map(|shape| reload::generate(shape, t, &mut funcs, &mut helpers));
     funcs.append(&mut helpers.funcs);
     scratch::strip_idle_scratch(&mut funcs, &helpers.sort_idle);
     let elems = placeholders::elems(t);
-    let main = t.main.map(|m| FuncIdx(m.0));
+    let main = t.main.map(|m| FuncIdx(m.0)).or(reload_main);
     if let (Some(init), Some(main)) = (init, main) {
         funcs[main.0 as usize].body.insert(0, Stmt::Call(init, Vec::new(), 0));
     }
@@ -77,7 +80,7 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
     let assumptions = helpers.assumptions;
     let contracts = helpers.proves.sites;
     let (copies, uncopied) = (copies::notes(t, lines), copies::uncopied(program, t, lines));
-    let m = Module {
+    let mut m = Module {
         funcs,
         structs,
         enums,
@@ -96,7 +99,9 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
         uncopied,
         hoisted: HashMap::new(),
         analysed: None,
+        reload: None,
     };
+    m.reload = t.reload.as_ref().map(|shape| reload::info(shape, t, &m));
     // Stack environments live only as long as the call they are passed to.
     if cfg!(debug_assertions) {
         if let Err(e) = crate::check_stack_envs(&m) {

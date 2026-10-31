@@ -10,7 +10,8 @@
 //! same as one `Node` holding itself. Renaming or reordering fields
 //! changes it, so bytes of one shape are never read as another. A type is named as it is
 //! declared, without the module it lives in (`Point`, never `geom.Point`): the shape is what must
-//! match, not the file, so a type moved into a module still reads the saves it wrote.
+//! match, not the file, so a type moved into a module still reads the saves it wrote. A GPU object
+//! (which only a reloadable program's state description meets) is `gpu`.
 
 use kestrel_check::Tables;
 
@@ -120,7 +121,8 @@ fn describe(ty: KTy, t: &Tables, inside: &mut Vec<KTy>, out: &mut String) {
             out.push('}');
             inside.pop();
         }
-        KTy::Arena | KTy::Gpu | KTy::Fn | KTy::Iface => unreachable!("the checker refuses `to_bytes` of a value holding a {ty:?}"),
+        KTy::Gpu => out.push_str("gpu"),
+        KTy::Arena | KTy::Fn | KTy::Iface => unreachable!("the checker refuses `to_bytes` and a reload state holding a {ty:?}"),
     }
 }
 

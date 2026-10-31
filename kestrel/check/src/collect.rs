@@ -151,9 +151,8 @@ pub(crate) fn collect(program: &Program, t: &mut Tables, diags: &mut Vec<Diagnos
     crate::natives::check_natives(program, t, diags);
     t.compute_owning();
     t.check_queued_args(diags);
-    if t.main.is_none() && needs_main {
-        diags.push(Diagnostic::error(Span::new(0, 0), "program needs a `main()` function"));
-    }
+    // A program without `main` may be reloadable instead (`setup` and `frame`).
+    crate::reload::check_entry(program, t, diags, needs_main);
 }
 
 /// `vec2` and `vec3` (structs of floats) and `ivec2` and `ivec3` (structs of ints), always

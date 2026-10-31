@@ -216,6 +216,24 @@ pub struct Module {
     /// The build range analysis marked the module for, in place (`range::remove_checks` or
     /// `mark_proven`); `None` until then. Codegen compiles an analysed module as it is.
     pub analysed: Option<crate::range::Arith>,
+    /// What the reloading host needs of a reloadable program (`setup` and `frame`, no `main`);
+    /// `None` for any other.
+    pub reload: Option<ReloadInfo>,
+}
+
+/// A reloadable program's state and `setup`, as the reloading host compares them between the old
+/// code and the new (hot reload design, decisions 3 and 4). Equal descriptions mean the same
+/// memory layout, so the new `frame` runs on the old state in place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReloadInfo {
+    /// The state type's description: the text `to_bytes`'s fingerprint hashes, with `gpu` for a
+    /// GPU object.
+    pub state_description: String,
+    /// A hash of `setup`'s lowered body, without its lines and with every index into the module
+    /// replaced by what it names: it changes when `setup` does, not when other code moves.
+    pub setup_hash: u64,
+    pub state_size: u32,
+    pub state_align: u32,
 }
 
 /// What a copy of a generic was made for (see `Module::copies`).

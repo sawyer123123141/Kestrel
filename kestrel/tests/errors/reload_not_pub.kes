@@ -1,0 +1,13 @@
+// The reloading host calls `setup` and `frame` from outside the program, so both are `pub`.
+struct Game {
+    n: int
+}
+setup() -> Game {
+    Game(n: 0)
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+
+// error 5: `setup` must be `pub` in a reloadable program; write `pub setup`

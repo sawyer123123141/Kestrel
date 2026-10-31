@@ -316,6 +316,8 @@ pub struct Tables {
     /// Every constant in the order `check_consts` checked it: each comes after the constants it uses.
     pub const_order: Vec<ConstId>,
     pub main: Option<FnId>,
+    /// A reloadable program's `setup`, `frame` and state type (it has no `main`; see `reload`).
+    pub reload: Option<crate::reload::ReloadShape>,
     /// Copied from the program: where the built-in modules' source is. Only they may
     /// name `GpuHandle` (see `in_builtin`).
     pub builtin_ranges: Vec<std::ops::Range<u32>>,

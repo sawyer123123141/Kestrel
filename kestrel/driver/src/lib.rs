@@ -4,6 +4,7 @@
 
 mod analysis;
 mod builtin;
+pub mod host;
 mod prove;
 
 use std::collections::HashMap;

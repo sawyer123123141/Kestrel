@@ -1,0 +1,9 @@
+// A reloadable program has both halves.
+struct Game {
+    n: int
+}
+pub setup() -> Game {
+    Game(n: 0)
+}
+
+// error 5: a reloadable program needs both `pub setup() -> State` and `pub frame(var s: State) -> bool`

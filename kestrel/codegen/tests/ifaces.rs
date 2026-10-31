@@ -95,6 +95,7 @@ fn module() -> Module {
         uncopied: Vec::new(),
         hoisted: HashMap::new(),
         analysed: None,
+        reload: None,
     }
 }
 

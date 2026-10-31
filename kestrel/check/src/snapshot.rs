@@ -50,7 +50,15 @@ pub struct SnapshotFault {
 /// optional's path. A type that contains itself (through a list, say) is walked once. A
 /// placeholder has no fault: generic code is judged at each copy, where it is a real type.
 pub fn snapshot_fault(t: &Tables, ty: Ty, root: &str) -> Option<SnapshotFault> {
-    let (path, kind) = walk(t, ty, root, &mut Vec::new())?;
+    let (path, kind) = walk(t, ty, root, &mut Vec::new(), false)?;
+    Some(SnapshotFault { param: root.to_string(), path, kind })
+}
+
+/// Like `snapshot_fault`, for the state of a reloadable program (hot reload design, decision 1):
+/// a reload keeps the state in place on the same thread, so a GPU object (a registry id that stays
+/// valid there) is allowed; an `Arena`, a function value and an interface value still aren't.
+pub fn reload_fault(t: &Tables, ty: Ty, root: &str) -> Option<SnapshotFault> {
+    let (path, kind) = walk(t, ty, root, &mut Vec::new(), true)?;
     Some(SnapshotFault { param: root.to_string(), path, kind })
 }
 
@@ -91,27 +99,28 @@ pub fn snapshot_refusal(t: &Tables, ty: Ty, root: Option<&str>, func: &str, verb
 }
 
 /// `snapshot_fault` below `path`, skipping the struct and enum types in `seen` (walked already, or
-/// being walked: a type that contains itself).
-fn walk(t: &Tables, ty: Ty, path: &str, seen: &mut Vec<Ty>) -> Option<(String, FaultKind)> {
+/// being walked: a type that contains itself). With `gpu`, a GPU object is no fault.
+fn walk(t: &Tables, ty: Ty, path: &str, seen: &mut Vec<Ty>, gpu: bool) -> Option<(String, FaultKind)> {
     match ty {
         Ty::Arena => Some((path.to_string(), FaultKind::Arena)),
+        Ty::Gpu if gpu => None,
         Ty::Gpu => Some((path.to_string(), FaultKind::Gpu)),
         Ty::Iface(_) => Some((path.to_string(), FaultKind::Iface)),
         Ty::Fn(_) => Some((path.to_string(), FaultKind::Fn)),
-        Ty::Optional(e) => walk(t, t.elem(e), path, seen),
-        Ty::Array(e) | Ty::List(e) => walk(t, t.elem(e), &format!("{path}[i]"), seen),
+        Ty::Optional(e) => walk(t, t.elem(e), path, seen, gpu),
+        Ty::Array(e) | Ty::List(e) => walk(t, t.elem(e), &format!("{path}[i]"), seen, gpu),
         Ty::Map(k, v) => {
             let items = format!("{path}[i]");
-            walk(t, t.elem(k), &items, seen).or_else(|| walk(t, t.elem(v), &items, seen))
+            walk(t, t.elem(k), &items, seen, gpu).or_else(|| walk(t, t.elem(v), &items, seen, gpu))
         }
         Ty::Struct(_) | Ty::Enum(_) if seen.contains(&ty) => None,
         Ty::Struct(s) => {
             seen.push(ty);
-            t.strukt(s).fields.iter().find_map(|f| walk(t, f.ty, &format!("{path}.{}", f.name), seen))
+            t.strukt(s).fields.iter().find_map(|f| walk(t, f.ty, &format!("{path}.{}", f.name), seen, gpu))
         }
         Ty::Enum(e) => {
             seen.push(ty);
-            t.enm(e).variants.iter().flat_map(|v| &v.fields).find_map(|f| walk(t, f.ty, &format!("{path}.{}", f.name), seen))
+            t.enm(e).variants.iter().flat_map(|v| &v.fields).find_map(|f| walk(t, f.ty, &format!("{path}.{}", f.name), seen, gpu))
         }
         _ => None,
     }

@@ -1,0 +1,15 @@
+// A function value's address differs between the old code and the new, so a reload can't keep it.
+struct Game {
+    n: int
+    on_hit: (int) -> int
+}
+pure twice(n: int) -> int { n * 2 }
+pub setup() -> Game {
+    Game(n: 0, on_hit: twice)
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+
+// error 7: `setup`'s state can't hold a function value; keep functions out of the state

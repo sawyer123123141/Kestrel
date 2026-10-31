@@ -373,3 +373,54 @@ main() {}
     assert!(text.contains("    loop at line 3 (in `total`)\n"), "{text}");
     assert!(text.contains("function `total[int]` (line 1)") && text.contains("function `total[float]` (line 1)"), "{text}");
 }
+
+/// The report's items ("line 25: overflow check: ..."), without the function they were inlined
+/// from, sorted.
+fn items(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("line "))
+        .map(|l| match (l.find(" (in `"), l.find("`):")) {
+            (Some(at), Some(end)) if at < end => format!("{}{}", &l[..at], &l[end + 2..]),
+            _ => l.to_string(),
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// The checks and the other ways to fail of the totals line: "4 checks, 1 removed, 3 left" and
+/// "1 other way to fail".
+fn check_totals(text: &str) -> (String, String) {
+    let total = text.lines().find(|l| l.starts_with("total: ")).expect("a totals line");
+    let parts: Vec<&str> = total["total: ".len()..].split("; ").collect();
+    (parts[0].to_string(), parts[2].to_string())
+}
+
+#[test]
+fn a_reloadable_program_reports_like_its_main_twin() {
+    // The `main` the compiler makes for a reloadable program is generated code, which the report
+    // leaves out; `setup` and `frame` are `pub`, so their own copies list their checks. The twin
+    // can't make them `pub` (a `main` program with both is refused), so the inliner folds them into
+    // its `main`, which lists the same checks under its own row. The checks, their texts and the
+    // totals of checks and failures agree; the twin's `main` also builds the constants.
+    let programs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/programs");
+    let report = |file: &str| {
+        let src = fs::read_to_string(programs.join(file)).unwrap();
+        // The same file name, so the reports' headers agree.
+        let dir = project(file.trim_end_matches(".kes"), &[("game.kes", &src)]);
+        let out = kestrel(&["check", "--report"], &dir.join("game.kes"));
+        assert!(out.status.success(), "{file}: {}", stderr(&out));
+        assert_eq!(stderr(&out), "", "{file}");
+        stdout(&out)
+    };
+    let (reloadable, twin) = (report("reload_shape.kes"), report("reload_shape_main.kes"));
+    assert!(!reloadable.contains("function `main`"), "{reloadable}");
+    assert!(twin.contains("  function `main` (line 32)"), "{twin}");
+    assert!(reloadable.contains("  function `frame` (line 24): 3 checks left (1 removed), 1 allocation, 1 other way to fail\n"), "{reloadable}");
+    assert_eq!(check_totals(&reloadable), check_totals(&twin));
+    let constants = ["line 32: allocation: makes the arena the constants live in", "line 5: allocation: `[...]` makes a new array"];
+    let twin_items: Vec<String> = items(&twin).into_iter().filter(|i| !constants.contains(&i.as_str())).collect();
+    assert_eq!(items(&reloadable), twin_items, "{reloadable}\n{twin}");
+}

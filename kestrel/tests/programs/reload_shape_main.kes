@@ -1,0 +1,40 @@
+// The `main` twin of reload_shape.kes, with the `main` the compiler makes for a reloadable program
+// written out. Its lines up to `frame` are those of reload_shape.kes, so their reports agree but for
+// the row of this `main`, which the generated one doesn't have. (A `main` program with a `pub setup`
+// and a `pub frame` is refused, so these two aren't `pub`.)
+let STEPS = [10, 20, 30]
+
+struct Counter {
+    n: int
+    total: int
+    seen: list[int]
+    label: string
+}
+
+@prove(no_alloc)
+pure step(n: int) -> int {
+    STEPS[n % 3]
+}
+
+setup() -> Counter {
+    print("setup")
+    Counter(n: 0, total: 0, seen: [], label: "frame")
+}
+
+frame(var s: Counter) -> bool {
+    s.total += step(s.n)
+    s.n += 1
+    s.seen.add(s.total)
+    print(s.label, s.n, s.total, s.seen.len)
+    s.n < 3
+}
+
+main() {
+    var s = setup()
+    while frame(var s) {}
+}
+
+// expect: setup
+// expect: frame 1 10 1
+// expect: frame 2 30 2
+// expect: frame 3 60 3

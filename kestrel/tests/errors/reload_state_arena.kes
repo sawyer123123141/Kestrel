@@ -1,0 +1,14 @@
+// An `Arena` belongs to the code that made it; a reload keeps the state, so it holds none.
+struct Game {
+    n: int
+    mem: Arena
+}
+pub setup() -> Game {
+    Game(n: 0, mem: Arena())
+}
+pub frame(var s: Game) -> bool {
+    s.n += 1
+    s.n < 3
+}
+
+// error 6: `setup`'s state can't hold an `Arena`; keep arenas out of the state

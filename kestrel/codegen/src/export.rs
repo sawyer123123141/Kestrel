@@ -98,8 +98,12 @@ pub(crate) fn define_thunks<M: Module>(module: &mut M, m: &kir::Module, ids: &[F
             arg_offsets.push(at);
             end = at + size;
         }
+        // A generated export (a reloadable program's `__kestrel_reload_drop`) is found by its name
+        // without the compiler's prefix; its thunk's symbol keeps the whole name, so a user's own
+        // function can't collide with it.
+        let name = f.name.strip_prefix("__kestrel_").unwrap_or(&f.name);
         let info = ExportInfo {
-            name: f.name.clone(),
+            name: name.to_string(),
             params: param_tys.iter().map(|&t| export_ty(m, t)).collect(),
             ret: f.ret.map(|t| export_ty(m, t)),
             arg_offsets,

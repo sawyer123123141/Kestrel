@@ -1,0 +1,12 @@
+// `frame` changes the state in place and says whether to go on.
+struct Game {
+    n: int
+}
+pub setup() -> Game {
+    Game(n: 0)
+}
+pub frame(s: Game) {
+    print(s.n)
+}
+
+// error 8: `frame` takes the state as one `var` parameter and returns `bool`: write `pub frame(var s: Game) -> bool`

@@ -7,6 +7,7 @@ pub mod generic;
 mod iface;
 mod list_method;
 mod natives;
+mod reload;
 mod sig;
 mod snapshot;
 mod str_method;
@@ -31,7 +32,8 @@ pub use vectors::{vec_kind, vector_ty, VecKind};
 pub use closure::{Capture, ClosureInfo};
 pub use sig::{sig_accepts, Sig, SigId, SigParam};
 pub use iface::implements;
-pub use snapshot::{snapshot_fault, FaultKind, SnapshotFault};
+pub use reload::ReloadShape;
+pub use snapshot::{reload_fault, snapshot_fault, FaultKind, SnapshotFault};
 pub use ty::Ty;
 
 /// Resolves names and checks types. Tables are returned only when there

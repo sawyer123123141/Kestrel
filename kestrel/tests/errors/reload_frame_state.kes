@@ -1,0 +1,16 @@
+// `frame` runs on the state `setup` made.
+struct Game {
+    n: int
+}
+struct World {
+    n: int
+}
+pub setup() -> Game {
+    Game(n: 0)
+}
+pub frame(var s: World) -> bool {
+    s.n += 1
+    s.n < 3
+}
+
+// error 11: `frame` takes the state `setup` makes: `var s: Game`, not `var s: World`
