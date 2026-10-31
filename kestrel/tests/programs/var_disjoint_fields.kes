@@ -1,0 +1,50 @@
+// expect: player 3 walls [1, 2, 3] score 6
+// expect: a 10 b 7
+// expect: walls [1, 2, 3, 3] player 3
+// Separate fields of one variable passed beside each other, one or both as `var`: the call
+// changes one part of the state and reads another, as a reloadable program's `frame` does.
+struct Player {
+    pos: int
+    score: int
+}
+
+struct Level {
+    walls: list[int]
+}
+
+struct Game {
+    player: Player
+    level: Level
+    other: Player
+}
+
+// Moves the player along the walls, scoring each one passed.
+step(var p: Player, l: Level) {
+    for w in l.walls {
+        p.pos = w
+        p.score += w
+    }
+}
+
+swap_scores(var a: Player, var b: Player) {
+    let t = a.score
+    a.score = b.score
+    b.score = t
+}
+
+add_wall(var l: Level, p: Player) {
+    l.walls.add(p.pos)
+}
+
+main() {
+    var g = Game(player: Player(pos: 0, score: 0), level: Level(walls: [1, 2, 3]), other: Player(pos: 0, score: 10))
+    step(var g.player, g.level)
+    print("player {g.player.pos} walls {g.level.walls} score {g.player.score}")
+    g.other.score = 7
+    g.player.score = 10
+    swap_scores(var g.player, var g.other)
+    swap_scores(var g.other, var g.player)
+    print("a {g.player.score} b {g.other.score}")
+    add_wall(var g.level, g.player)
+    print("walls {g.level.walls} player {g.player.pos}")
+}
