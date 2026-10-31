@@ -6,7 +6,7 @@
 //! way out: the end, `return`, and a `break` or `continue` of the element's loop.
 //!
 //! Only one route reaches such a place while the region runs: the checker refuses a `var`
-//! argument whose variable appears in another argument of the same call, and there are no
+//! argument whose place overlaps another argument's in the same call, and there are no
 //! global variables that change. A region that reaches the place another way (passing it on as
 //! `var`, a `par for`, or for a loop element its collection or another element of it) is left
 //! alone, and so is a loop element's region that returns after freeing memory (see

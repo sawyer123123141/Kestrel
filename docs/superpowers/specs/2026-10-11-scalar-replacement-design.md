@@ -88,8 +88,8 @@ All the leaves are computed before any is stored, so a value that reads its own 
 - **A loop element** (a local set by `Stmt::Bind`: a `for ... in` element, or a `par for` item in a `par for` body), whose type is plain. Its region is the rest of the statement list after the `Bind`, normally the rest of one loop iteration. It ends early at the next `Bind` of the same local.
 
 **Why it is safe.** Only one route reaches the place's memory during the region:
-- For a `var` parameter, the checker refuses to let the argument's variable appear in any other argument of the same call (`check_exclusive` in `check/src/body/call.rs`), and Kestrel has no global variables that can change (heap constants are read-only).
-- For a read-only struct parameter, nothing can change the memory during the call: no argument of the call may be a `var` use of the same variable.
+- For a `var` parameter, the checker refuses to let the argument's place overlap any other argument of the same call (`check_exclusive` in `check/src/body/var_clash.rs`), and Kestrel has no global variables that can change (heap constants are read-only). Since 2026-10-31 places are compared by field path, not by variable, so `step(var g.a, g.b)` passes and its two parameters still never share memory.
+- For a read-only struct parameter, nothing can change the memory during the call: no argument of the call may be a `var` use of an overlapping place.
 - For a loop element, the conditions below rule out any other route.
 
 **When a place is not promoted (the conservative skips).** A pointer parameter is skipped if, in its region, a place rooted at it is:

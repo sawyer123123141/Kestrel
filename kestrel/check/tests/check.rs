@@ -218,7 +218,7 @@ fn call_errors() {
         ("f(var x: int) {}\nmain() {\n var a = 1\n f(a)\n}\n", "parameter `x` of `f` is `var`, so the call must say so"),
         ("f(x: int) {}\nmain() {\n var a = 1\n f(var a)\n}\n", "parameter `x` of `f` isn't `var`"),
         ("f(var x: int) {}\nmain() {\n let a = 1\n f(var a)\n}\n", "can't pass `a` as `var`: it was declared with `let`"),
-        ("f(var x: int, var y: int) {}\nmain() {\n var a = 1\n f(var a, var a)\n}\n", "`a` is passed as `var` and also used in another argument of the same call"),
+        ("f(var x: int, var y: int) {}\nmain() {\n var a = 1\n f(var a, var a)\n}\n", "`a` is passed as `var` and is also passed in another argument of the same call"),
         ("f(x: int) {}\nmain() {\n f(1, 2)\n}\n", "`f` takes 1 argument(s), got 2"),
         ("f(x: int) {}\nmain() {\n f()\n}\n", "missing argument `x` for `f`"),
         ("f(x: int) {}\nmain() {\n f(y: 1)\n}\n", "`f` has no parameter named `y`"),

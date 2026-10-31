@@ -138,7 +138,7 @@ fn a_call_inside_a_native_call_is_judged_by_its_scratch_arena() {
 fn an_argument_may_not_pass_part_of_a_var_argument() {
     // P40: replacing an owning `w` frees what `v` points at, however the argument reaches it.
     let w = "enum Pick {\n    One\n    Two\n}\nstruct W {\n    mem: Arena = Arena()\n    s: string = \"\"\n}\nf(var w: W, v: string) {\n    w = W()\n    print(v)\n}\n";
-    let shared = "`w` is passed as `var` and also used in another argument of the same call";
+    let shared = "`w` is passed as `var` and `w.s` is inside it";
     for arg in ["w.s", "if n > 0 { w.s } else { \"\" }", "match Pick.One {\n        One { w.s }\n        else { \"\" }\n    }"] {
         let errs = run(&with_main(w, &format!("    var w = W()\n    let n = 1\n    f(var w, {arg})\n")));
         assert_eq!(errs, [shared], "{arg}");
@@ -147,7 +147,7 @@ fn an_argument_may_not_pass_part_of_a_var_argument() {
     // The receiver of a `var self` method counts too.
     let m = "struct V {\n    s: string = \"\"\n    reset(var self, v: string) { self.s = v }\n}\n";
     let errs = run(&with_main(m, "    var v = V()\n    v.reset(if true { v.s } else { \"\" })\n"));
-    assert_eq!(errs, ["`v` is changed by this call, so it can't also be passed to it"]);
+    assert_eq!(errs, ["`v` is changed by this call and `v.s` is inside it"]);
 }
 
 #[test]

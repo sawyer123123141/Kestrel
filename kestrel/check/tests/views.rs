@@ -115,7 +115,7 @@ fn a_receiver_cant_also_be_passed_as_var() {
     assert_eq!(errors(&apart), none());
     // The plain function form, and a `var self` receiver that is also read, were already refused.
     let free = format!("{cell}both(a: Cell, var b: Cell) {{\n}}\nmain() {{\n var c = Cell(b: Bag())\n both(c, var c)\n}}\n");
-    assert_eq!(errors(&free), vec!["`c` is passed as `var` and also used in another argument of the same call".to_string()]);
+    assert_eq!(errors(&free), vec!["`c` is passed as `var` and is also passed in another argument of the same call".to_string()]);
     let bump = format!("{cell}main() {{\n var c = Cell(b: Bag())\n c.bump(c)\n}}\n");
     assert_eq!(errors(&bump), vec!["`c` is changed by this call, so it can't also be passed to it".to_string()]);
 }

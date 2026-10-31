@@ -44,6 +44,7 @@ mod remove;
 mod stmt;
 mod strings;
 mod structs;
+mod var_clash;
 mod vec_builtins;
 mod vec_make;
 mod vec_ops;

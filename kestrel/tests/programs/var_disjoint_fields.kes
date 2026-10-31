@@ -1,6 +1,7 @@
 // expect: player 3 walls [1, 2, 3] score 6
 // expect: a 10 b 7
 // expect: walls [1, 2, 3, 3] player 3
+// expect: climb 9 45
 // Separate fields of one variable passed beside each other, one or both as `var`: the call
 // changes one part of the state and reads another, as a reloadable program's `frame` does.
 struct Player {
@@ -36,6 +37,20 @@ add_wall(var l: Level, p: Player) {
     l.walls.add(p.pos)
 }
 
+// Directly recursive, so it is not inlined: its own frame holds two pointer parameters into one
+// variable of the caller, and `promote` keeps `p`'s fields in registers while `l` is read.
+climb(var p: Player, l: Level, depth: int) {
+    for w in l.walls {
+        p.pos += w
+        p.score += p.pos
+    }
+    if depth > 0 {
+        var spare = Player(pos: 0, score: 0)
+        climb(var spare, l, depth - 1)
+        p.score += spare.score
+    }
+}
+
 main() {
     var g = Game(player: Player(pos: 0, score: 0), level: Level(walls: [1, 2, 3]), other: Player(pos: 0, score: 10))
     step(var g.player, g.level)
@@ -47,4 +62,6 @@ main() {
     print("a {g.player.score} b {g.other.score}")
     add_wall(var g.level, g.player)
     print("walls {g.level.walls} player {g.player.pos}")
+    climb(var g.other, g.level, 1)
+    print("climb {g.other.pos} {g.other.score}")
 }

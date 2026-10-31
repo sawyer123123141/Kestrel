@@ -1,4 +1,4 @@
-//! Call arguments: matching them to parameters, `var` arguments, and the exclusive-access check.
+//! Call arguments: matching them to parameters and `var` arguments. The exclusivity check is in `var_clash`.
 
 use kestrel_syntax::ast::{Arg, Expr, ExprKind};
 
@@ -6,7 +6,7 @@ use super::narrow::Site;
 use super::exclusive::RecvChange;
 use super::lists::written;
 use super::place::Immutable;
-use super::regions::{tail, Ctx, PathKey};
+use super::regions::Ctx;
 use super::BodyChecker;
 use crate::natives::may_want_scratch;
 use crate::tables::{FnId, LocalId, ParamSig, Tables};
@@ -275,102 +275,5 @@ impl<'a> BodyChecker<'a> {
             self.error(a.value.span, msg);
         }
         Some(root)
-    }
-
-    /// While a call changes a place, nothing else in the call may refer to it by reference: no
-    /// second `var` use, and no aggregate argument (those are passed by pointer, so they would see
-    /// the change). Number arguments are copied before the call, so they're fine. Places are
-    /// compared by their fields, so `step(var g.player, g.world)` passes: the call can't change
-    /// `g.world` through `g.player`. A changed place that holds an `Arena` clashes with all of its
-    /// variable, since replacing it frees memory a sibling field may hold.
-    pub(super) fn check_exclusive(&mut self, args: &[Arg], var_roots: &[(LocalId, Option<usize>)], recv: Option<Receiver<'_>>) {
-        // Each changed place, with its type.
-        let changed: Vec<(PathKey, Ty)> = var_roots
-            .iter()
-            .map(|&(root, ai)| {
-                let e = match ai {
-                    Some(ai) => Some(&args[ai].value),
-                    None => recv.map(|r| r.expr),
-                };
-                let key = e.and_then(|e| self.exclusive_key(e)).filter(|k| k.root == root);
-                (key.unwrap_or(PathKey { root, steps: Vec::new() }), e.map_or(Ty::Error, |e| self.t.ty(e.id)))
-            })
-            .collect();
-        let clash = |c: &(PathKey, Ty), other: &PathKey| c.0.root == other.root && (c.0.overlaps(other) || self.t.holds_arena(c.1));
-        let mut errors = Vec::new();
-        for (i, &(root, ai)) in var_roots.iter().enumerate() {
-            let Some(ai) = ai else { continue };
-            if changed[..i].iter().any(|c| clash(c, &changed[i].0) || clash(&changed[i], &c.0)) {
-                let name = self.t.local(root).name.clone();
-                errors.push((args[ai].span, format!("`{name}` is passed as `var` and also used in another argument of the same call"), None));
-            }
-        }
-        // A receiver that isn't `var` is passed by pointer too, so it would see the change.
-        if let Some(read_root) = recv.and_then(|r| r.read_root) {
-            let read = recv.and_then(|r| self.exclusive_key(r.expr)).filter(|k| k.root == read_root);
-            let read = read.unwrap_or(PathKey { root: read_root, steps: Vec::new() });
-            for (i, &(root, ai)) in var_roots.iter().enumerate() {
-                if let (true, Some(ai)) = (clash(&changed[i], &read), ai) {
-                    let name = self.t.local(root).name.clone();
-                    let msg = format!("`{name}` is passed as `var` and is also the receiver of this call");
-                    errors.push((args[ai].span, msg, Some("copy what the method needs into a separate variable first")));
-                }
-            }
-        }
-        for (bi, b) in args.iter().enumerate() {
-            if var_roots.iter().any(|&(_, ai)| ai == Some(bi)) || !self.t.ty(b.value.id).is_aggregate() {
-                continue;
-            }
-            // An `if` or `match` passes the place its branch ends in, by pointer, like the place
-            // itself (P40): `f(var w, if c { w.s } else { "" })` would see `w` change.
-            let mut leaves = Vec::new();
-            tail_places(&b.value, &mut leaves);
-            let shared = leaves.iter().filter_map(|l| self.exclusive_key(l)).find_map(|key| {
-                var_roots.iter().zip(&changed).find(|(_, c)| clash(c, &key)).map(|(v, _)| *v)
-            });
-            let Some((root, source)) = shared else { continue };
-            let name = self.t.local(root).name.clone();
-            let msg = match source {
-                None => format!("`{name}` is changed by this call, so it can't also be passed to it"),
-                Some(_) => format!("`{name}` is passed as `var` and also used in another argument of the same call"),
-            };
-            errors.push((b.span, msg, None));
-        }
-        for (span, msg, help) in errors {
-            match help {
-                Some(help) => self.error_help(span, msg, help),
-                None => self.error(span, msg),
-            }
-        }
-    }
-
-    /// The place `e` refers to, for the exclusivity rule: its variable and fields, an index
-    /// standing for any index (`source_key`), and a `vec4` or `ivec4` lane standing for the whole
-    /// vector. `None` when `e` isn't a place.
-    fn exclusive_key(&self, e: &Expr) -> Option<PathKey> {
-        if let ExprKind::Field { base, .. } = &e.kind {
-            if matches!(self.t.ty(base.id), Ty::Vec4 | Ty::IVec4) {
-                return self.exclusive_key(base);
-            }
-        }
-        self.source_key(e)
-    }
-}
-
-/// The expressions `e`'s value may be without a copy: `e` itself, or the last expression of each
-/// branch of an `if` or `match` (looked through again).
-fn tail_places<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
-    match &e.kind {
-        ExprKind::If { then_block, else_block, .. } => {
-            for t in std::iter::once(then_block).chain(else_block.as_ref()).filter_map(tail) {
-                tail_places(t, out);
-            }
-        }
-        ExprKind::Match { arms, .. } => {
-            for t in arms.iter().filter_map(|a| tail(&a.body)) {
-                tail_places(t, out);
-            }
-        }
-        _ => out.push(e),
     }
 }

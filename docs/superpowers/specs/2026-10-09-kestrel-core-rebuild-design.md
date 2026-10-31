@@ -219,12 +219,13 @@ Run in order; each collects all its errors before the next starts
    not an effect.
 4. **Moves:** last-use analysis per local; use-after-move is an error;
    copying an owning type is an error; large-copy warning.
-5. **Exclusivity:** a variable changed by a call (a `var` argument, or the
+5. **Exclusivity:** a place changed by a call (a `var` argument, or the
    receiver of a `var self` method) may not also be passed as another
    `var` argument, or as a read-only argument of aggregate type (passed by
    pointer, so it would see the change). Number arguments are copied
-   before the call, so `p.add(p.x)` and `bump(var n, n)` are fine. Rooted
-   at the variable: `f(var p.x, p)` conflicts. Call-site `var` must match
+   before the call, so `p.add(p.x)` and `bump(var n, n)` are fine. Since
+   2026-10-31 places are compared by field path, not by variable: `f(var p.x, p.y)`
+   passes, while `f(var p.x, p)` conflicts. Call-site `var` must match
    the parameter. (Refined 2026-10-10 from "never passed twice".)
    Arguments run in source order, so one passed by pointer must not be
    changed by a call or assignment nested in a later argument; and while a

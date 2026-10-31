@@ -1,5 +1,5 @@
 // error 12: parameter `x` of `bump` is `var`, so the call must say so
-// error 13: `a` is passed as `var` and also used in another argument of the same call
+// error 13: `a` is passed as `var` and is also passed in another argument of the same call
 // error 14: parameter `y` of `bump` isn't `var`
 bump(var x: int, y: int) {
     x += y
@@ -32,5 +32,5 @@ parts() {
     swap_out(var h, if n > 0 { h.s } else { "" })
     swap_out(var h, other.s)
 }
-// error 31: `h` is passed as `var` and also used in another argument of the same call
-// error 32: `h` is passed as `var` and also used in another argument of the same call
+// error 31: `h` is passed as `var` and `h.s` is inside it
+// error 32: `h` is passed as `var` and `h.s` is inside it
