@@ -1,4 +1,5 @@
 mod link;
+mod reload;
 mod replay_cmd;
 
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use kestrel_codegen::{emit_object, has_sse41, JitProgram, Options, NO_SSE41, TAR
 use link::Lib;
 
 const USAGE: &str = "usage: kestrel <run|check|build> <file.kes> [-o <exe>] [--release] [--report] [--diagnostics=short]
-       kestrel run <file.kes> [--release] [--record <file.replay>] [<args>...] [-- <args>...]
+       kestrel run <file.kes> [--release] [--no-reload] [--record <file.replay>] [<args>...] [-- <args>...]
        kestrel replay <file.kes> <file.replay> [--release]";
 
 /// What `--report` on anything but `check` says.
@@ -37,18 +38,21 @@ struct Args {
     record: Option<String>,
     /// `replay <file.kes> <file.replay>`: the recording to replay.
     replay: Option<String>,
+    /// `run --no-reload`: a reloadable program runs without watching its files.
+    no_reload: bool,
 }
 
 fn parse_args(raw: Vec<String>) -> Option<Args> {
     let mut it = raw.into_iter();
     let (mut positional, mut out, mut release, mut report, mut style) = (Vec::new(), None, false, false, DiagStyle::Full);
-    let (mut program_args, mut record) = (Vec::new(), None);
+    let (mut program_args, mut record, mut no_reload) = (Vec::new(), None, false);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--" => program_args.extend(it.by_ref()),
             "-o" => out = Some(it.next()?),
             "--record" => record = Some(it.next()?),
             "--release" => release = true,
+            "--no-reload" => no_reload = true,
             "--report" => report = true,
             "--diagnostics=short" => style = DiagStyle::Short,
             s if s.starts_with('-') => return None,
@@ -60,7 +64,7 @@ fn parse_args(raw: Vec<String>) -> Option<Args> {
     let replay = if positional.first().is_some_and(|c| c == "replay") { Some(positional.pop()?) } else { None };
     let [cmd, path]: [String; 2] = positional.try_into().ok()?;
     // Only `run` starts the program with words of its own; a replay has the recorded ones.
-    if cmd != "run" && (!program_args.is_empty() || record.is_some()) {
+    if cmd != "run" && (!program_args.is_empty() || record.is_some() || no_reload) {
         return None;
     }
     // A replay runs the program, so it takes only `--release` of the compiler's flags.
@@ -68,7 +72,7 @@ fn parse_args(raw: Vec<String>) -> Option<Args> {
         return None;
     }
     let known = matches!(cmd.as_str(), "run" | "check" | "build" | "replay");
-    known.then_some(Args { cmd, path, out, release, report, style, program_args, record, replay })
+    known.then_some(Args { cmd, path, out, release, report, style, program_args, record, replay, no_reload })
 }
 
 /// The compiler recurses over the syntax tree, so it runs on a stack far bigger than the
@@ -115,6 +119,8 @@ fn run() -> ExitCode {
         },
         None => None,
     };
+    // Taken before the file is read, so hot reload sees a save made while this compiles.
+    let entry_time = std::fs::metadata(&args.path).and_then(|m| m.modified()).ok();
     let src = match std::fs::read_to_string(&args.path) {
         Ok(s) => s,
         Err(e) => {
@@ -131,9 +137,16 @@ fn run() -> ExitCode {
         eprintln!("kestrel: {e}");
         return ExitCode::from(2);
     }
-    let (compiled, diagnostics) = kestrel_driver::compile(&args.path, src, args.style);
+    // Running a reloadable program calls its `setup` and `frame` itself, so it needs no `main`.
+    let (compiled, diagnostics) = match args.cmd.as_str() {
+        "run" | "replay" => kestrel_driver::host::compile_as_host(&args.path, src, args.style),
+        _ => kestrel_driver::compile(&args.path, src, args.style),
+    };
     eprint!("{diagnostics}");
     let Some(mut compiled) = compiled else { return ExitCode::from(1) };
+    if let Some(entry) = compiled.files.first_mut() {
+        entry.modified = entry_time;
+    }
     // An annotated program is analysed here, once, for this build; only `check` warns.
     let checking = args.cmd == "check";
     let proved = kestrel_driver::prove(&mut compiled, !args.release, checking, args.style);
@@ -160,13 +173,13 @@ fn run() -> ExitCode {
             kestrel_window::set_program_dir(Path::new(&args.path).parent().unwrap_or(Path::new("")));
             // `args.program()` is the `.kes` path, and `args.all()` the words meant for the program.
             kestrel_runtime::start::set_args(args.path.clone(), args.program_args.clone());
-            // The window crate's natives, then the runtime's own (`file`, `time`, `args`, `env`).
-            let natives: Vec<(&str, *const u8)> =
-                kestrel_window::symbols().into_iter().chain(kestrel_runtime::natives::native_symbols()).collect();
-            JitProgram::compile_with(&compiled.module, opts, &natives).map_err(internal_error).and_then(|p| {
+            JitProgram::compile_with(&compiled.module, opts, &natives()).map_err(internal_error).and_then(|p| {
+                let reloadable = compiled.module.reload.is_some();
+                let job = reload::job(&args, opts, reloadable);
                 // Recording or replaying starts with the program, once it is compiled.
                 replay_cmd::start(&args, replaying);
-                replay_cmd::finish(p.run_main())
+                let code = if reloadable { reload::run(p, compiled, job)? } else { p.run_main() };
+                replay_cmd::finish(code)
             })
         }
         _ => {
@@ -180,6 +193,12 @@ fn run() -> ExitCode {
             ExitCode::from(3)
         }
     }
+}
+
+/// The natives a program is compiled with: the window crate's, then the runtime's own (`file`,
+/// `time`, `args`, `env`).
+fn natives() -> Vec<(&'static str, *const u8)> {
+    kestrel_window::symbols().into_iter().chain(kestrel_runtime::natives::native_symbols()).collect()
 }
 
 /// Whether `KESTREL_CHECK_PROOFS=1` is set: codegen then keeps every check range analysis proved,
@@ -323,6 +342,17 @@ mod tests {
         assert!(args(&["replay", "g.kes", "r.replay", "--", "a"]).is_none());
         assert!(args(&["replay", "g.kes", "r.replay", "--record", "s.replay"]).is_none());
         assert!(args(&["replay", "g.kes", "r.replay", "-o", "x"]).is_none());
+    }
+
+    #[test]
+    fn no_reload_goes_with_run_only() {
+        let a = args(&["run", "g.kes", "--no-reload", "a"]).unwrap();
+        assert!(a.no_reload);
+        assert_eq!(a.program_args, ["a"]);
+        assert!(!args(&["run", "g.kes"]).unwrap().no_reload);
+        assert!(args(&["check", "g.kes", "--no-reload"]).is_none());
+        assert!(args(&["build", "g.kes", "--no-reload"]).is_none());
+        assert!(args(&["replay", "g.kes", "r.replay", "--no-reload"]).is_none());
     }
 
     #[test]

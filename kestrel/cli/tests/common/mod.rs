@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod directives;
+pub mod session;
 pub mod smoke;
 
 use std::ffi::{OsStr, OsString};
