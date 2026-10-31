@@ -175,7 +175,35 @@ main() {
   marker (or marking a read-only one) is a compile error. The receiver
   of a method call is exempt: `chunk.generate()`, not
   `var chunk.generate()`.
-- Program entry point: `main()`.
+- **A call can't see what it changes through another argument.** While
+  a call changes a place (a `var` argument or a `var self` receiver),
+  no other argument may be that place, a place inside it or one it is
+  inside, whether passed as `var`, as the receiver, or read-only with
+  an aggregate type (passed by pointer); number arguments are copied
+  first, so `bump(var n, n)` is fine. Places are compared by their
+  fields (2026-10-31): separate fields of one variable may be passed
+  together (`step(var g.player, g.world)`, `swap(var g.a, var g.b)`),
+  while two elements of one list (`f(var xs[i], xs[j])`: `i` may equal
+  `j`) and two lanes of one `vec4` clash, and a loop item or `match`
+  binding counts as the place it reads. A changed place that holds an
+  `Arena` clashes with everything else from its variable, since
+  replacing it may free memory a sibling field holds.
+- Program entry point: `main()`, or the reloadable shape below.
+
+### Reloadable programs
+
+(The hot reload round, 2026-10-30; design `2026-10-30-hot-reload-design.md`.) A program may have, instead of `main`:
+
+```
+pub setup() -> Game            // runs once: opens the window, loads assets, makes the state
+pub frame(var g: Game) -> bool // runs every frame; false ends the program
+```
+
+- Both are `pub` free functions of the program's own file; `frame`'s `var` parameter has the type `setup` returns. A program has `main`, or `setup` and `frame`, never both.
+- The state type is anything `checksum` takes, **plus GPU objects** (a `Mesh` or `Texture` keeps working across a reload); it may not hold an `Arena`, a function value or an interface value ("`setup`'s state can't hold a function value; keep functions out of the state").
+- Everywhere but the reloading host, the program behaves exactly as if it had `main() { let g = setup(); while frame(var g) {} }`: `kestrel build`, `kestrel check --report` and proofs see that.
+- **`kestrel run` reloads it.** While the program runs, saving any of its files recompiles the whole program on another thread; between two frames the new code takes over. When the state's shape (its fields and their types) is unchanged, the new `frame` continues on the same state in place: nothing is copied, the window stays open, meshes stay uploaded (`reloaded pong.kes in 0.31 s` on stderr; `setup() changed but the state was kept; restart to apply it` when only `setup` changed). When the shape changed, the old state is dropped, `setup()` runs again and the program says so (`state reset: Game changed shape; setup() ran again`). A compile error prints its diagnostics and `still running the previous code; fix the error and save again`; the next save tries again. `--no-reload` turns it off; `--record` and `kestrel replay` never reload.
+- A second `window.open` while the window is open applies the size and title instead of failing, so `setup` can run again.
 
 ### Native functions
 

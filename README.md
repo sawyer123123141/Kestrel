@@ -243,6 +243,8 @@ Four modules are built into the compiler (raylib underneath), and work under bot
 - `use draw3d`: a camera, meshes you build in Kestrel (`MeshData`, like filling an `ArrayMesh`) and upload to the GPU once, and a few shapes.
 - `use input`: keyboard and mouse.
 
+A game written as two functions, `pub setup() -> Game` and `pub frame(var g: Game) -> bool`, reloads while it runs: save a file and `kestrel run` recompiles it on the side and swaps the new code in between two frames, keeping the state (score, world, meshes) when its shape did not change, or restarting with one sentence when it did. A compile error keeps the old code running. `main` programs are untouched; `--no-reload` turns it off.
+
 ```kestrel
 use window
 use draw

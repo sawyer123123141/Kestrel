@@ -653,6 +653,18 @@ The user's friend asked for the IR to be inspected for redundant operations. Dum
 71. **Some runs copy every 400 KB list 13-18 times slower** (90-128 µs instead of about 7 µs, for the whole run, in 5 of 18 bench runs of `bench/io/bytes.kes`). Likely the spare-block cache in `runtime/src/blocks.rs` handing out a block in a slow state (fresh from Windows, page faults on first touch) each time, or an alignment accident. Measure which, then warm or keep the block. Not syntax.
 72. **`from_bytes`'s `Reserve` reason says it "fails if its result would hold more than ... bytes"**, which the `i32::MAX` check rules out as fix wave 2 found for the list-add reason; make it the allocation only. Not syntax.
 
+## Found while building the hot reload round (2026-10-30 to 2026-10-31)
+
+73. **A shape change leaks the old state's arena memory once.** The host frees its state buffer after the old module's `reload_drop`, but what that state allocated in the program arena is not reclaimed (spec decision 3's ruling: accepted, bump arena). A per-generation arena, or a reload that moves the arena's live set, would reclaim it. Cost: memory per shape change only.
+74. **Compile warnings on a successful reload are not printed.** `compile_for_reload` returns only the failure text; `kestrel run` prints warnings on the first compile but a reload shows none. Return the warnings beside `Compiled` and print them before `reloaded`.
+75. **Old JIT modules are kept for the whole session** (`Live.retired`): cranelift-jit leaks them anyway, and the state may hold pointers into them (function values are refused in the state, so none today). A reload-count bound, or freeing after the next successful swap, is a follow-up once the state rule proves none can point back.
+76. **A gameplay edit during a rollback is not proven safe for Pong's peers.** Both peers swap code at once, but a rollback started before the swap re-simulates old frames with the new code, so their checksums could disagree; Pong's reload test edits `MAX_STEPS` for that reason. A rollback library (roadmap step 4) should confirm the frame of the swap and re-simulate from it.
+77. **The real window's resize on a second `window.open` is untested** (`real::reopen`: `SetWindowSize`/`SetWindowTitle`); only the headless kind is, and a replay ignores the new size. A resize mid 3D pass is not handled (hot reload only reopens from `setup`, outside a frame).
+78. **Reload latency in a debug CLI is over the spec's second** (Pong 1.3 s, the voxel engine 2.3 s, save to `reloaded`). The release numbers are in `kestrel/bench/determinism/results.md`; if they are still over, the compile of the unchanged modules is the cost: cache per-module checked output across reloads.
+79. **`cli/tests/reload.rs` is 446 lines and `cli/tests/voxel_engine.rs` 419**: split by case family when next touched.
+80. **Nothing checks that promote acts on `var_disjoint_fields.kes`'s recursive `climb`** (two pointer parameters into one variable in one frame); its output is right, the pass's work on it is unobserved. A `--report` line or a codegen test would show it.
+81. **`--record` of a reloadable program cannot reload** (it prints `--record runs the program without reloading`), because a reload between frames would change the native log's meaning. Recording the reload as an event in the file is the fix if a recorded session with reloads is ever wanted.
+
 ## Cheap, fix when the area is next touched
 
 - `-2147483648` / `i64::MIN` literals can't be written (special-case `Neg(Int)`).
