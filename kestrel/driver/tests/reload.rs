@@ -71,9 +71,10 @@ pub frame(var s: Game) -> bool {
 #[test]
 fn a_compile_error_returns_the_diagnostics_with_the_line() {
     let dir = folder("error", &[("game.kes", "main() {\n    print(missing)\n}\n")]);
-    let Err(text) = compile_for_reload(&dir.join("game.kes"), DiagStyle::Full, false) else {
+    let Err(failure) = compile_for_reload(&dir.join("game.kes"), DiagStyle::Full, false) else {
         panic!("compiled a program with an error")
     };
+    let text = failure.text;
     assert!(text.contains("missing"), "{text}");
     assert!(text.contains("game.kes:2:"), "{text}");
     assert!(text.ends_with("1 error\n"), "{text}");
@@ -86,7 +87,8 @@ fn a_contract_is_proved_for_the_build_asked_for() {
     let src = "@prove(no_checks)\npub f(x: int) -> int { x + 1 }\nmain() { print(f(1)) }\n";
     let dir = folder("prove", &[("game.kes", src)]);
     let path = dir.join("game.kes");
-    let Err(text) = compile_for_reload(&path, DiagStyle::Short, false) else { panic!("the contract held in a checked build") };
+    let Err(failure) = compile_for_reload(&path, DiagStyle::Short, false) else { panic!("the contract held in a checked build") };
+    let text = failure.text;
     assert!(text.contains("can't be proven `no_checks`"), "{text}");
     assert!(compile_for_reload(&path, DiagStyle::Short, true).is_ok());
     let _ = std::fs::remove_dir_all(&dir);
@@ -95,7 +97,11 @@ fn a_contract_is_proved_for_the_build_asked_for() {
 #[test]
 fn a_missing_file_is_an_error_that_names_it() {
     let path = std::env::temp_dir().join("kestrel-reload-no-such-file.kes");
-    let Err(text) = compile_for_reload(&path, DiagStyle::Full, false) else { panic!("compiled a missing file") };
+    let Err(failure) = compile_for_reload(&path, DiagStyle::Full, false) else { panic!("compiled a missing file") };
+    let text = failure.text;
+    // The host watches for it to appear.
+    assert_eq!(failure.files.len(), 1);
+    assert_eq!((&failure.files[0].path, failure.files[0].modified), (&path, None));
     assert!(text.starts_with(&format!("kestrel: can't read {}: ", path.display())), "{text}");
 }
 
@@ -105,5 +111,26 @@ fn it_compiles_on_another_thread() {
     let path = dir.join("game.kes");
     let compiled = std::thread::spawn(move || compile_for_reload(&path, DiagStyle::Full, false)).join().unwrap();
     assert!(compiled.is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failure_lists_the_files_it_read_with_their_times() {
+    // A module only the broken program uses, and one it names that doesn't exist yet: the host
+    // watches both, so fixing the first or creating the second is seen.
+    let dir = folder(
+        "failure_files",
+        &[("game.kes", "use broken\nuse absent\nmain() { print(broken.k()) }\n"), ("broken.kes", "pub k() -> int { \"three\" }\n")],
+    );
+    let (game, broken, absent) = (dir.join("game.kes"), dir.join("broken.kes"), dir.join("absent.kes"));
+    let Err(failure) = compile_for_reload(&game, DiagStyle::Full, false) else { panic!("compiled a broken program") };
+    assert_eq!(failure.files[0].path, game, "the entry file comes first");
+    assert_eq!(failure.files[0].modified, time(&game));
+    let find = |path: &Path| failure.files.iter().find(|f| f.path == path).unwrap_or_else(|| panic!("{path:?} in {:?}", failure.files));
+    assert_eq!(find(&broken).modified, time(&broken));
+    assert_eq!(find(&absent).modified, None);
+    assert!(failure.files.iter().all(|f| !f.changed()));
+    std::fs::write(&absent, "pub x() -> int { 1 }\n").unwrap();
+    assert!(find(&absent).changed(), "a file that appears is a change");
     let _ = std::fs::remove_dir_all(&dir);
 }

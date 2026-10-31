@@ -53,11 +53,30 @@ impl Session {
     /// renamed over the old), so the host never reads half a file, with a modification time
     /// later than any before.
     pub fn edit(&mut self, src: &str) {
-        let tmp = self.path.with_extension("kes.tmp");
+        let path = self.path.clone();
+        self.edit_file(&path, src);
+    }
+
+    /// Writes `src` to `path` (the program or a module beside it, which may be new) as `edit`
+    /// does.
+    pub fn edit_file(&mut self, path: &Path, src: &str) {
+        let tmp = path.with_extension("kes.tmp");
         fs::write(&tmp, src).unwrap();
         self.stamp = SystemTime::now().max(self.stamp + Duration::from_millis(10));
         fs::File::options().write(true).open(&tmp).unwrap().set_modified(self.stamp).unwrap();
-        fs::rename(&tmp, &self.path).unwrap();
+        // On Windows a virus scanner or OneDrive can hold the new file for a moment.
+        let end = Instant::now() + Duration::from_secs(1);
+        while let Err(e) = fs::rename(&tmp, path) {
+            assert!(Instant::now() < end, "can't rename {} over {}: {e}", tmp.display(), path.display());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Takes in every stderr line that has come so far, without waiting.
+    pub fn drain_err(&mut self) {
+        while let Ok(line) = self.err.try_recv() {
+            self.errs.push(line);
+        }
     }
 
     /// Replaces the program with `src` the way an editor that writes in place does, holding the

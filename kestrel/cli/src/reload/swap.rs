@@ -10,7 +10,7 @@ use kestrel_codegen::jit::Thunk;
 use kestrel_codegen::{ExportTy, JitProgram};
 use kestrel_kir::ReloadInfo;
 
-use super::compile::Built;
+use super::compile::{Built, Outcome};
 use super::watch::Watcher;
 
 /// The memory the state lives in: `ReloadInfo::state_size` bytes, aligned for the state and to at
@@ -115,16 +115,18 @@ impl Live {
 /// Takes in what a compile gave, between two frames: swaps the new program in, or prints the
 /// compile's errors and keeps the one that runs. `name` is the program file's name. Every message
 /// goes to `out` (stderr).
-pub fn apply(live: &mut Live, result: Result<Built, String>, buffer: &mut StateBuffer, watcher: &mut Watcher, name: &str, out: &mut dyn Write) {
+pub fn apply(live: &mut Live, result: Outcome, buffer: &mut StateBuffer, watcher: &mut Watcher, name: &str, out: &mut dyn Write) {
     match result {
         Ok(built) => {
             watcher.adopt(built.compiled.files.clone());
             swap(live, built, buffer, name, out);
         }
-        // The watcher keeps the times from the compile's start, so this is not tried again
-        // until the next save.
-        Err(text) => {
-            let _ = write!(out, "{text}");
+        // The watcher takes the times the compile read the files at, and watches every file it
+        // tried (a module only this edit uses among them), so this is not tried again until the
+        // next save, and a save to any of them is seen.
+        Err(failure) => {
+            watcher.merge(failure.files);
+            let _ = write!(out, "{}", failure.text);
             let _ = writeln!(out, "still running the previous code; fix the error and save again");
         }
     }
@@ -152,20 +154,22 @@ pub fn swap(live: &mut Live, built: Built, buffer: &mut StateBuffer, name: &str,
     // The new code's first failure names no line of the old code's.
     kestrel_runtime::panic::reset_call_site();
     next.init();
-    if next.info.state_description == live.info.state_description {
-        let setup_changed = next.info.setup_hash != live.info.setup_hash;
+    let same_shape = next.info.state_description == live.info.state_description;
+    let setup_changed = next.info.setup_hash != live.info.setup_hash;
+    if same_shape {
         live.replace(next);
-        // From the save to now; from the compile's start when the file's time is in the future.
-        let took = saved.and_then(|t| SystemTime::now().duration_since(t).ok()).unwrap_or_else(|| started.elapsed());
-        let _ = writeln!(out, "reloaded {name} in {:.2} s", took.as_secs_f64());
-        if setup_changed {
-            let _ = writeln!(out, "setup() changed but the state was kept; restart to apply it");
-        }
     } else {
         live.drop_state(buffer);
         *buffer = StateBuffer::new(&next.info);
         live.replace(next);
         live.setup(buffer);
+    }
+    // From the save to now; from the compile's start when the file's time is in the future.
+    let took = saved.and_then(|t| SystemTime::now().duration_since(t).ok()).unwrap_or_else(|| started.elapsed());
+    let _ = writeln!(out, "reloaded {name} in {:.2} s", took.as_secs_f64());
+    if !same_shape {
         let _ = writeln!(out, "state reset: {} changed shape; setup() ran again", live.state);
+    } else if setup_changed {
+        let _ = writeln!(out, "setup() changed but the state was kept; restart to apply it");
     }
 }

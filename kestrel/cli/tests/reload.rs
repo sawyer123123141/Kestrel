@@ -125,10 +125,13 @@ fn a_shape_change_resets_with_a_sentence() {
     begin(&mut s, 2, 3);
     s.edit(&counter_with(2, "\n    m: int", 0, ", m: 7"));
     s.wait_err("state reset: Count changed shape; setup() ran again");
+    // `reloaded` comes first, as after any swap.
+    let at = |start: &str| s.errs.iter().position(|l| l.starts_with(start));
+    let (reloaded, reset) = (at("reloaded prog.kes in "), at("state reset:"));
+    assert!(matches!((reloaded, reset), (Some(a), Some(b)) if a < b), "{}", s.transcript());
     // `setup` ran again, and the count started over.
     while s.next_out() != "setup" {}
     follow(&mut s, 0, 2, 2, 3);
-    assert!(!s.errs.iter().any(|l| l.starts_with("reloaded")), "{}", s.transcript());
 }
 
 #[test]
@@ -207,6 +210,12 @@ fn a_save_during_a_compile_is_not_lost() {
     s.edit(&slow_counter(3));
     std::thread::sleep(std::time::Duration::from_millis(400));
     s.edit(&slow_counter(4));
+    s.drain_err();
+    assert!(
+        !s.errs.iter().any(|l| l.starts_with("reloaded")),
+        "the first compile ended before the second save, so this test shows nothing; pad `slow_counter` more:\n{}",
+        s.transcript()
+    );
     s.wait_err("reloaded prog.kes in ");
     // Whatever ran in between, the latest save is what runs in the end, on the same count.
     let (mut last, mut fours) = (last, 0);
@@ -268,28 +277,31 @@ fn never_reloads(mut s: Session, frames: usize) -> Vec<String> {
     errs
 }
 
+/// How many frames the programs that never reload run: about 3 s at 20 ms each, many polls.
+const FRAMES: u32 = 150;
+
 #[test]
 fn a_main_program_never_reloads() {
-    never_reloads(start("main", MAIN, 60, &[]), 60);
+    never_reloads(start("main", MAIN, FRAMES, &[]), FRAMES as usize);
 }
 
 #[test]
 fn no_reload_and_record_never_reload() {
     let slow = counter(2).replace("time.sleep(0.005)", "time.sleep(0.02)");
-    never_reloads(start("no_reload", &slow, 60, &["--no-reload"]), 60);
+    never_reloads(start("no_reload", &slow, FRAMES, &["--no-reload"]), FRAMES as usize);
 
     let dir = scratch("record");
     let (path, file) = (dir.join("prog.kes"), dir.join("run.replay"));
     fs::write(&path, &slow).unwrap();
-    let s = Session::start(kestrel_run(&path, 60, &["--record", file.to_str().unwrap()]), &path);
-    let errs = never_reloads(s, 60);
+    let s = Session::start(kestrel_run(&path, FRAMES, &["--record", file.to_str().unwrap()]), &path);
+    let errs = never_reloads(s, FRAMES as usize);
     assert!(errs.iter().any(|l| l == "--record runs the program without reloading"), "{errs:?}");
     // A replay of a reloadable program runs it without reloading too, and matches.
     fs::write(&path, &slow).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kestrel"));
     let out = hermetic(&mut cmd).arg("replay").arg(&path).arg(&file).output().unwrap();
     let (text, err) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert!(out.status.success() && text.contains("replay matches (60 frames, 61 lines)"), "{text}\n{err}");
+    assert!(out.status.success() && text.contains(&format!("replay matches ({FRAMES} frames, {} lines)", FRAMES + 1)), "{text}\n{err}");
 }
 
 #[test]
@@ -344,19 +356,91 @@ pub frame(var s: Pic) -> bool {
 }
 "#;
 
-#[test]
-fn a_gpu_object_in_state_survives() {
-    let dir = scratch("gpu");
+/// Runs the texture program with K = 2 in a scratch folder named `name`, with the test texture
+/// beside it.
+fn start_texture(name: &str) -> Session {
+    let dir = scratch(name);
     let asset = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/programs/assets/checker.png");
     fs::copy(asset, dir.join("checker.png")).unwrap();
     let path = dir.join("prog.kes");
     fs::write(&path, TEXTURE.replace("@K@", "2")).unwrap();
-    let mut s = Session::start(kestrel_run(&path, 100_000, &[]), &path);
+    Session::start(kestrel_run(&path, 100_000, &[]), &path)
+}
+
+/// Whether every frame line from `from` on drew the 4 by 4 texture.
+fn drew_the_texture(s: &Session, from: usize) -> bool {
+    s.outs[from..].iter().filter(|l| l.starts_with("frame ")).all(|l| l.ends_with(" tex 4x4"))
+}
+
+#[test]
+fn a_gpu_object_in_state_survives() {
+    let mut s = start_texture("gpu");
     let last = begin(&mut s, 2, 3);
     s.edit(&TEXTURE.replace("@K@", "3"));
     s.wait_err("reloaded prog.kes in ");
     follow(&mut s, last, 2, 3, 5);
     // Every frame drew the same 4 by 4 texture, before the reload and after.
-    let frames: Vec<&String> = s.outs.iter().filter(|l| l.starts_with("frame ")).collect();
-    assert!(frames.iter().all(|l| l.ends_with(" tex 4x4")), "{}", s.transcript());
+    assert!(drew_the_texture(&s, 0), "{}", s.transcript());
+}
+
+#[test]
+fn a_shape_change_drops_the_texture_and_loads_it_again() {
+    // The old module's `reload_drop` lets go of the texture, the new `setup` loads it again, and
+    // the program goes on drawing it.
+    let mut s = start_texture("gpu_shape");
+    begin(&mut s, 2, 3);
+    let reshaped = TEXTURE.replace("@K@", "2").replace("    n: int\n}", "    n: int\n    m: int\n}").replace("n: 0)", "n: 0, m: 0)");
+    s.edit(&reshaped);
+    s.wait_err("state reset: Pic changed shape; setup() ran again");
+    while s.next_out() != "setup" {}
+    follow(&mut s, 0, 2, 2, 10);
+    assert!(drew_the_texture(&s, 0), "{}", s.transcript());
+}
+
+#[test]
+fn an_edit_that_removes_setup_and_frame_keeps_the_old_code() {
+    let mut s = start("to_main", &counter(2), 100_000, &[]);
+    let last = begin(&mut s, 2, 3);
+    s.edit(&MAIN.replace("let K = 2", "let K = 3"));
+    s.wait_err(
+        "prog.kes has no `setup` and `frame` now, so it can't be reloaded; still running the previous code; restart it to run the new one",
+    );
+    follow(&mut s, last, 2, 2, 10);
+}
+
+/// The counter with its value times `helper.k()`, from the module `helper.kes` beside it.
+fn with_helper() -> String {
+    counter(2)
+        .replace("use time\n", "use time\nuse helper\n")
+        .replace("    print(\"frame {s.n} value {s.n * K}\")\n", "    let v = s.n * K * helper.k()\n    print(\"frame {s.n} value {v}\")\n")
+}
+
+#[test]
+fn a_module_only_a_broken_edit_uses_is_watched() {
+    let mut s = start("helper_broken", &counter(2), 100_000, &[]);
+    let last = begin(&mut s, 2, 3);
+    let helper = s.path.with_file_name("helper.kes");
+    fs::write(&helper, "pub k() -> int {\n    \"three\"\n}\n").unwrap();
+    s.edit(&with_helper());
+    s.wait_err("still running the previous code; fix the error and save again");
+    assert!(s.errs.iter().any(|l| l.contains("helper.kes")), "the error is in the module:\n{}", s.transcript());
+    let last = follow(&mut s, last, 2, 2, 5);
+    // Only the module is fixed: the program file is not saved again.
+    s.edit_file(&helper, "pub k() -> int {\n    3\n}\n");
+    s.wait_err("reloaded prog.kes in ");
+    follow(&mut s, last, 2, 6, 5);
+    assert_eq!(s.errs.iter().filter(|l| l.contains("still running")).count(), 1, "{}", s.transcript());
+}
+
+#[test]
+fn a_module_written_after_the_edit_that_uses_it_reloads() {
+    let mut s = start("helper_missing", &counter(2), 100_000, &[]);
+    let last = begin(&mut s, 2, 3);
+    s.edit(&with_helper());
+    s.wait_err("still running the previous code; fix the error and save again");
+    let last = follow(&mut s, last, 2, 2, 5);
+    let helper = s.path.with_file_name("helper.kes");
+    s.edit_file(&helper, "pub k() -> int {\n    3\n}\n");
+    s.wait_err("reloaded prog.kes in ");
+    follow(&mut s, last, 2, 6, 5);
 }

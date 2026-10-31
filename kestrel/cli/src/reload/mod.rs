@@ -15,8 +15,9 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use kestrel_codegen::{JitProgram, Options};
 use kestrel_driver::Compiled;
 
-pub use compile::Job;
-use compile::Built;
+pub use compile::{Job, THREAD as COMPILE_THREAD};
+use compile::Outcome;
+use kestrel_driver::reload::CompileFailure;
 use swap::{Live, StateBuffer};
 use watch::Watcher;
 
@@ -72,7 +73,7 @@ struct Reloader {
     /// The program file's name, for `reloaded <name> in <t> s`.
     name: String,
     watcher: Watcher,
-    compiling: Option<Receiver<Result<Built, String>>>,
+    compiling: Option<Receiver<Outcome>>,
     /// A save was seen while a compile ran: look again as soon as it ends.
     queued: bool,
 }
@@ -90,7 +91,10 @@ impl Reloader {
             let result = match rx.try_recv() {
                 Ok(result) => Some(result),
                 Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(Err("kestrel: the compile stopped without a result\n".to_string())),
+                Err(TryRecvError::Disconnected) => {
+                    let text = "kestrel: the compile stopped without a result; save again to retry\n".to_string();
+                    Some(Err(CompileFailure { text, files: Vec::new() }))
+                }
             };
             if let Some(result) = result {
                 self.compiling = None;
@@ -108,7 +112,9 @@ impl Reloader {
         if self.compiling.is_some() {
             self.queued = true;
         } else {
-            // The times are taken before the compile reads the files, so no save is missed.
+            // The save being compiled no longer shows as a change while it compiles; one that
+            // lands meanwhile does. Afterwards the watcher takes the times the compile itself read
+            // the files at (`swap::apply`), so no save is missed and none is compiled twice.
             self.watcher.refresh();
             self.compiling = Some(compile::spawn(&self.job, self.watcher.paths(), self.watcher.latest_save()));
         }

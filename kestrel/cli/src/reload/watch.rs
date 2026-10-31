@@ -61,6 +61,18 @@ impl Watcher {
     pub fn adopt(&mut self, files: Vec<SourceFile>) {
         self.files = files;
     }
+
+    /// After a failed compile: watches `files`, the ones it tried to read, with the times it read
+    /// them at (a file it didn't find is watched for appearing), as well as those watched already.
+    /// A module only the broken edit uses is then seen when it is fixed.
+    pub fn merge(&mut self, files: Vec<SourceFile>) {
+        for file in files {
+            match self.files.iter_mut().find(|f| f.path == file.path) {
+                Some(known) => known.modified = file.modified,
+                None => self.files.push(file),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +143,22 @@ mod tests {
         assert!(!read.iter().any(SourceFile::changed));
         w.adopt(read);
         assert!(!w.changed_now());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_failed_compile_adds_the_files_it_tried() {
+        let path = file("merge");
+        let mut w = watching(&path);
+        let helper = path.with_file_name("helper.kes");
+        // The failed compile read the program after a save, and found no `helper.kes`.
+        stamp(&path, 1);
+        let read = fs::metadata(&path).unwrap().modified().ok();
+        w.merge(vec![SourceFile { path: path.clone(), modified: read }, SourceFile { path: helper.clone(), modified: None }]);
+        assert!(!w.changed_now(), "the save the compile read is not seen again");
+        fs::write(&helper, "pub k() -> int { 3 }\n").unwrap();
+        assert!(w.changed_now(), "the module appearing is seen");
+        assert!(w.paths().contains(&helper));
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }
