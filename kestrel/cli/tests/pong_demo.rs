@@ -9,10 +9,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 mod common;
 
 use common::hermetic;
+use common::session::Session;
 
 /// The demo's five files. `pong.kes` is the program; the others are its modules.
 const FILES: [&str; 5] = ["pong.kes", "game.kes", "net.kes", "peer.kes", "replay.kes"];
@@ -267,4 +269,57 @@ fn a_replay_that_cant_be_written_is_reported() {
     assert!(line.starts_with("could not write `pong.replay`: "), "the failed write wasn't reported last:
 {out}");
     assert!(!out.contains("wrote pong.replay"), "{out}");
+}
+
+/// Pong's trace line (`TRACE` on), `trace tick <t> score <a> <b>`: the tick and the two scores.
+fn trace(s: &mut Session) -> (i64, i64, i64) {
+    let line = loop {
+        let line = s.next_out();
+        if line.starts_with("trace ") {
+            break line;
+        }
+    };
+    let w: Vec<&str> = line.split(' ').collect();
+    let number = |i: usize| -> i64 { w[i].parse().unwrap_or_else(|_| panic!("not a trace line: {line:?}")) };
+    assert!(w.len() == 6 && w[1] == "tick" && w[3] == "score", "not a trace line: {line:?}");
+    (number(2), number(4), number(5))
+}
+
+/// The next trace line, which must go on from `last`: the tick one more, no score lower.
+fn trace_after(s: &mut Session, last: (i64, i64, i64)) -> (i64, i64, i64) {
+    let now = trace(s);
+    assert!(now.0 == last.0 + 1 && now.1 >= last.1 && now.2 >= last.2, "{last:?} then {now:?}:\n{}", s.transcript());
+    now
+}
+
+#[test]
+fn an_edit_reloads_pong_and_keeps_the_game() {
+    // A copy with `TRACE` on, each frame paced to 5 ms so the run lasts while the test edits it.
+    let dir = scratch("reload");
+    let main = copy_demo(&dir);
+    let src = fs::read_to_string(&main).unwrap();
+    let print = "        print(\"trace tick";
+    assert!(src.contains("let TRACE = false") && src.contains(print), "pong.kes has no trace line");
+    let paced = src.replacen("use window", "use time\nuse window", 1).replace("let TRACE = false", "let TRACE = true");
+    fs::write(&main, paced.replace(print, &format!("        time.sleep(0.005)\n{print}"))).unwrap();
+    let mut cmd = kestrel();
+    headless(cmd.arg("run").arg(&main), 100_000);
+    let mut s = Session::start(cmd, &main);
+    let mut last = trace(&mut s);
+    assert_eq!(last, (1, 0, 0), "the first frame runs network frame 0:\n{}", s.transcript());
+    for _ in 0..30 {
+        last = trace_after(&mut s, last);
+    }
+    // `MAX_STEPS` changes nothing in a headless run (its clock runs one step a frame), so the
+    // peers stay equal however their frames fall around the swap.
+    let src = fs::read_to_string(&main).unwrap();
+    s.edit(&src.replace("let MAX_STEPS = 4", "let MAX_STEPS = 5"));
+    let line = s.wait_err("reloaded pong.kes in ");
+    assert!(line.ends_with(" s"), "{line}");
+    // The lines printed before the swap are read at once; a second more of them came after it.
+    let end = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < end {
+        last = trace_after(&mut s, last);
+    }
+    assert!(!s.errs.iter().any(|l| l.contains("state reset") || l.contains("setup()")), "{}", s.transcript());
 }

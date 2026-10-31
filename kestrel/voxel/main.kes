@@ -19,18 +19,21 @@
 //
 // `work_ms` is the frame's own work, timed from the start of the frame to just before
 // `window.frame()`, averaged over the second (the rest of the frame is waiting for the display).
-// Everything the game keeps lives in `main`'s variables: there are no globals.
+// Everything the game keeps lives in `VoxelState`: there are no globals. The program is
+// reloadable (`setup` and `frame`, no `main`): under `kestrel run`, an edit saved to any of its
+// files is swapped in between two frames, and the world, the player and the meshes stay as they
+// were as long as `VoxelState` stays the same.
 use window
 use draw
 use input
 use file
 use { Color from draw }
 use { Key from input }
-use { new_world from world }
-use { new_stream, stream_step, VIEW, CAPACITY, GEN_BATCH, MESH_BATCH from stream }
-use { Intent, new_player, step_player, spawn, eye, look, view from player }
+use { World, new_world from world }
+use { Stream, new_stream, stream_step, VIEW, CAPACITY, GEN_BATCH, MESH_BATCH from stream }
+use { Intent, Player, new_player, step_player, spawn, eye, look, view from player }
 use { apply_edit, REACH from edit }
-use { new_render, mesh_step, draw_world, meshed_chunks from render }
+use { Render, new_render, mesh_step, draw_world, meshed_chunks from render }
 use { draw_hud, two from hud }
 use { cast from ray }
 use { save_world, load_world, load_failure, SAVE_FILE from save }
@@ -50,115 +53,135 @@ let CLICK = 4.0
 // Seconds between the printed stats lines.
 let REPORT = 1.0
 
-main() {
-    window.open(SCREEN_WIDTH, SCREEN_HEIGHT, "Kestrel voxels")
-    var w = new_world(SEED, CAPACITY)
-    var s = new_stream(VIEW, GEN_BATCH)
-    var r = new_render(CAPACITY)
-    var p = new_player(START)
-    var spawned = false
+// A test sets this to print a line each frame: `trace pos <x> <y> <z> spawned <bool> columns <n>`.
+let TRACE = false
 
+// Everything the game keeps between two frames. `kestrel run` keeps it across an edit of the
+// program (a hot reload) when this struct stays the same; the meshes in `r` stay on the GPU.
+pub struct VoxelState {
+    w: World
+    s: Stream
+    r: Render
+    p: Player
+    spawned: bool
     // The mouse: captured or not, where it was last frame, and the right button's press so far
     // (where it went down and how far the mouse has gone from there).
-    var captured = false
-    var last_mouse = input.mouse()
-    var press_at = vec2(0, 0)
-    var drag = 0.0
-
+    captured: bool
+    last_mouse: vec2
+    press_at: vec2
+    drag: float
     // Sums over the current second, and the values the last stats line printed.
-    var frames = 0
-    var work_sum: i64 = 0
-    var interval_start = window.time()
-    var fps = 0.0
-    var work_ms = 0.0
+    frames: int
+    work_sum: i64
+    interval_start: float
+    fps: float
+    work_ms: float
+}
 
-    while window.frame() {
-        let t0 = window.ticks_usec()
+// Opens the window and makes an empty world around the player's start.
+pub setup() -> VoxelState {
+    window.open(SCREEN_WIDTH, SCREEN_HEIGHT, "Kestrel voxels")
+    VoxelState(w: new_world(SEED, CAPACITY), s: new_stream(VIEW, GEN_BATCH), r: new_render(CAPACITY), p: new_player(START),
+        spawned: false, captured: false, last_mouse: input.mouse(), press_at: vec2(0, 0), drag: 0.0, frames: 0,
+        work_sum: i64(0), interval_start: window.time(), fps: 0.0, work_ms: 0.0)
+}
 
-        // Input to intent.
-        let toggled = input.pressed(Key.Tab)
-        if toggled {
-            captured = not captured
-            input.capture(captured)
-            drag = CLICK
+// One frame; false when the window has closed.
+pub frame(var v: VoxelState) -> bool {
+    if not window.frame() {
+        return false
+    }
+    let t0 = window.ticks_usec()
+
+    // Input to intent.
+    let toggled = input.pressed(Key.Tab)
+    if toggled {
+        v.captured = not v.captured
+        input.capture(v.captured)
+        v.drag = CLICK
+    }
+    let mouse = input.mouse()
+    var turn = vec2(0, 0)
+    var place = false
+    if v.captured {
+        // The frame that captures the mouse doesn't turn: its delta can include the cursor's
+        // jump to the middle of the window.
+        if not toggled {
+            turn = input.mouse_delta()
         }
-        let mouse = input.mouse()
-        var turn = vec2(0, 0)
-        var place = false
-        if captured {
-            // The frame that captures the mouse doesn't turn: its delta can include the
-            // cursor's jump to the middle of the window.
-            if not toggled {
-                turn = input.mouse_delta()
-            }
-            place = input.pressed(Key.MouseRight)
-        } else {
-            if input.pressed(Key.MouseRight) {
-                press_at = mouse
-                drag = 0.0
-            }
-            if input.held(Key.MouseRight) {
-                turn = mouse - last_mouse
-            }
-            // The release frame's movement counts toward the click rule too.
-            if input.held(Key.MouseRight) or input.released(Key.MouseRight) {
-                drag = max(drag, (mouse - press_at).length())
-            }
-            if input.released(Key.MouseRight) and drag < CLICK {
-                place = true
-            }
+        place = input.pressed(Key.MouseRight)
+    } else {
+        if input.pressed(Key.MouseRight) {
+            v.press_at = mouse
+            v.drag = 0.0
         }
-        last_mouse = mouse
-        let i = Intent(move: vec3(input.axis(Key.A, Key.D), input.axis(Key.Shift, Key.Space), input.axis(Key.S, Key.W)),
-            turn: turn, jump: input.held(Key.Space), wheel: input.wheel(), break_block: input.pressed(Key.MouseLeft),
-            place_block: place, toggle_fly: input.pressed(Key.F))
-
-        // Saving and loading. A loaded player is where it was saved, so it doesn't spawn again;
-        // until its columns are Ready again it stands still (a column that isn't Ready is stone).
-        if input.pressed(Key.F5) {
-            if save_world(w, p) {
-                print("saved {SAVE_FILE}")
-            } else {
-                print("could not save: {file.error()}")
-            }
+        if input.held(Key.MouseRight) {
+            turn = mouse - v.last_mouse
         }
-        if input.pressed(Key.F9) {
-            if load_world(var w, var p) {
-                spawned = true
-                print("loaded {SAVE_FILE}")
-            } else {
-                print(load_failure())
-            }
+        // The release frame's movement counts toward the click rule too.
+        if input.held(Key.MouseRight) or input.released(Key.MouseRight) {
+            v.drag = max(v.drag, (mouse - v.press_at).length())
         }
-
-        // The world.
-        if not spawned {
-            spawned = spawn(var p, w)
-        }
-        step_player(var p, w, i, window.delta())
-        let dirty = apply_edit(var w, p, i)
-        stream_step(var s, var w, p.pos)
-        mesh_step(var r, var w, dirty, MESH_BATCH, p.pos, VIEW)
-
-        // Drawing.
-        draw.clear(SKY)
-        let size = window.size()
-        draw_world(r, w, view(p), size.x / size.y)
-        draw_hud(cast(w, eye(p), look(p), REACH), p, fps, work_ms, w.columns.in_use(), meshed_chunks(r), r.total_faces,
-            w.queue.len(), captured)
-
-        // Stats, once a second.
-        frames += 1
-        work_sum += window.ticks_usec() - t0
-        let elapsed = window.time() - interval_start
-        if elapsed >= REPORT {
-            fps = float(frames) / elapsed
-            work_ms = float(work_sum) / float(frames) / 1000.0
-            let mode = if p.fly { "fly" } else { "walk" }
-            print("voxel fps {two(fps)} work_ms {two(work_ms)} columns {w.columns.in_use()} chunks {meshed_chunks(r)} faces {r.total_faces} queue {w.queue.len()} mode {mode}")
-            frames = 0
-            work_sum = i64(0)
-            interval_start += elapsed
+        if input.released(Key.MouseRight) and v.drag < CLICK {
+            place = true
         }
     }
+    v.last_mouse = mouse
+    let i = Intent(move: vec3(input.axis(Key.A, Key.D), input.axis(Key.Shift, Key.Space), input.axis(Key.S, Key.W)),
+        turn: turn, jump: input.held(Key.Space), wheel: input.wheel(), break_block: input.pressed(Key.MouseLeft),
+        place_block: place, toggle_fly: input.pressed(Key.F))
+
+    // Saving and loading. A loaded player is where it was saved, so it doesn't spawn again; until
+    // its columns are Ready again it stands still (a column that isn't Ready is stone).
+    if input.pressed(Key.F5) {
+        if save_world(v.w, v.p) {
+            print("saved {SAVE_FILE}")
+        } else {
+            print("could not save: {file.error()}")
+        }
+    }
+    if input.pressed(Key.F9) {
+        if load_world(var v.w, var v.p) {
+            v.spawned = true
+            print("loaded {SAVE_FILE}")
+        } else {
+            print(load_failure())
+        }
+    }
+
+    // The world.
+    if not v.spawned {
+        v.spawned = spawn(var v.p, v.w)
+    }
+    step_player(var v.p, v.w, i, window.delta())
+    let dirty = apply_edit(var v.w, v.p, i)
+    stream_step(var v.s, var v.w, v.p.pos)
+    mesh_step(var v.r, var v.w, dirty, MESH_BATCH, v.p.pos, VIEW)
+
+    // Drawing.
+    draw.clear(SKY)
+    let size = window.size()
+    draw_world(v.r, v.w, view(v.p), size.x / size.y)
+    draw_hud(cast(v.w, eye(v.p), look(v.p), REACH), v.p, v.fps, v.work_ms, v.w.columns.in_use(), meshed_chunks(v.r),
+        v.r.total_faces, v.w.queue.len(), v.captured)
+
+    // Stats, once a second.
+    v.frames += 1
+    v.work_sum += window.ticks_usec() - t0
+    let elapsed = window.time() - v.interval_start
+    if elapsed >= REPORT {
+        v.fps = float(v.frames) / elapsed
+        v.work_ms = float(v.work_sum) / float(v.frames) / 1000.0
+        let mode = if v.p.fly { "fly" } else { "walk" }
+        print("voxel fps {two(v.fps)} work_ms {two(v.work_ms)} columns {v.w.columns.in_use()} chunks {meshed_chunks(v.r)} faces {v.r.total_faces} queue {v.w.queue.len()} mode {mode}")
+        v.frames = 0
+        v.work_sum = i64(0)
+        v.interval_start += elapsed
+    }
+    if TRACE {
+        arena {
+            print("trace pos {v.p.pos.x} {v.p.pos.y} {v.p.pos.z} spawned {v.spawned} columns {v.w.columns.in_use()}")
+        }
+    }
+    true
 }
