@@ -74,6 +74,14 @@ pub(crate) fn of_file(file: *const FileName) -> String {
 #[allow(non_upper_case_globals)]
 pub static kestrel_rt_call_file: AtomicPtr<FileName> = AtomicPtr::new(std::ptr::null_mut());
 
+/// Forgets the latest call's line and file. The reloading host calls this when it swaps in a new
+/// module, so a failure before the new code's first call names no line rather than one of the old
+/// code's, and the file pointer, which points into the old module, is never read.
+pub fn reset_call_site() {
+    kestrel_rt_call_line.store(0, Ordering::Relaxed);
+    kestrel_rt_call_file.store(std::ptr::null_mut(), Ordering::Relaxed);
+}
+
 /// Fails with `msg` and the line of the call into the built-in function that is
 /// failing: "draw.circle was called before window.open on line 12".
 ///
@@ -197,6 +205,16 @@ mod tests {
     fn a_false_assumption_names_its_text_line_and_file() {
         assert_eq!(assume_failed_message("n <= xs.len", 9, "f.kes"), "assumption `n <= xs.len` is false on line 9 of f.kes");
         assert_eq!(assume_failed_message("i >= 0", 3, ""), "assumption `i >= 0` is false on line 3");
+    }
+
+    #[test]
+    fn resetting_the_call_site_forgets_the_line_and_the_file() {
+        let mut name = FileName { ptr: b"old.kes".as_ptr(), len: 7 };
+        kestrel_rt_call_line.store(12, Ordering::Relaxed);
+        kestrel_rt_call_file.store(&mut name, Ordering::Relaxed);
+        reset_call_site();
+        assert_eq!(kestrel_rt_call_line.load(Ordering::Relaxed), 0);
+        assert!(kestrel_rt_call_file.load(Ordering::Relaxed).is_null());
     }
 
     #[test]

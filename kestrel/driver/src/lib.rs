@@ -6,6 +6,7 @@ mod analysis;
 mod builtin;
 pub mod host;
 mod prove;
+pub mod reload;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ use kestrel_syntax::{parse_at, render, render_short, Diagnostic, LineIndex, Span
 pub use analysis::{analyze, Analysis};
 pub use builtin::needs_window;
 pub use prove::{prove, Proved};
+pub use reload::compile_for_reload;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DiagStyle {

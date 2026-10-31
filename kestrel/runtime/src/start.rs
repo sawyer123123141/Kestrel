@@ -31,11 +31,17 @@ pub fn args() -> Option<&'static (String, Vec<String>)> {
 
 /// Runs `entry` and flushes on the calling thread, since output is buffered per thread.
 fn run_entry(entry: extern "C" fn()) {
+    run_program(|| entry());
+}
+
+/// Runs `body` as a program on the calling thread: the float mode pinned and the thread marked
+/// first, then the output flushed and the arena reports printed (when asked) once it returns.
+fn run_program<R>(body: impl FnOnce() -> R) -> R {
     // Round to nearest and nothing flushed, whatever mode the thread started with; `par for`
     // then pins its caller (this thread) too.
     crate::fpu::pin();
     crate::fpu::mark_started();
-    entry();
+    let result = body();
     crate::print::flush();
     // The program arena belongs to this thread, so it is measured here (and only when asked).
     if let Some(report) = arena_report(std::env::var("KESTREL_ARENA_REPORT").ok().as_deref(), crate::arena::program_bytes) {
@@ -44,6 +50,7 @@ fn run_entry(entry: extern "C" fn()) {
     if let Some(report) = arena_count_report(std::env::var("KESTREL_ARENA_COUNT").ok().as_deref(), crate::arena::arenas_alive) {
         eprintln!("{report}");
     }
+    result
 }
 
 /// The line `KESTREL_ARENA_COUNT=1` asks for once `main` has returned: how many arenas made by
@@ -84,22 +91,51 @@ pub extern "C" fn kestrel_rt_start(entry: extern "C" fn()) -> i32 {
 /// process-wide: arenas made from now on follow it.
 pub fn start_with(entry: extern "C" fn(), poison: bool) -> i32 {
     crate::blocks::set_poison(poison);
-    match std::thread::Builder::new().stack_size(STACK_SIZE).spawn(move || run_entry(entry)) {
-        Ok(thread) => {
-            // A panic in the runtime itself (not a Kestrel panic, which exits directly).
-            if thread.join().is_ok() {
-                0
-            } else {
-                101
-            }
-        }
+    on_big_stack(move || {
+        run_entry(entry);
+        0
+    })
+}
+
+/// Runs `host` as the program, the way `kestrel_rt_start` runs a compiled `main`: on a 256 MiB
+/// thread with the float mode pinned, the output flushed and the arena reports printed after it.
+/// `host` returns the exit code. The reloading host runs its whole session through this, so the
+/// window, the GPU objects and the program arena (all kept per thread) live as long as it does.
+/// A Kestrel failure inside ends the process with 101 as usual; a panic in the runtime itself
+/// gives 101.
+pub fn start_host(host: impl FnOnce() -> i32 + Send + 'static) -> i32 {
+    started();
+    if !crate::fpu::has_sse41() {
+        eprintln!("kestrel: {}", crate::fpu::NO_SSE41);
+        return 101;
+    }
+    crate::blocks::set_poison(poison_setting(std::env::var("KESTREL_POISON").ok().as_deref()));
+    on_big_stack(move || run_program(host))
+}
+
+/// Runs `body` on a thread with a 256 MiB stack and returns its exit code, or 101 when it panics.
+fn on_big_stack(body: impl FnOnce() -> i32 + Send + 'static) -> i32 {
+    // Shared with the thread, so `body` can still run here when no thread can be made.
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(body)));
+    let theirs = slot.clone();
+    let spawned = std::thread::Builder::new().stack_size(STACK_SIZE).spawn(move || {
+        let body = theirs.lock().unwrap_or_else(|e| e.into_inner()).take();
+        body.map_or(0, |body| body())
+    });
+    match spawned {
+        // A panic in the runtime itself (not a Kestrel failure, which exits directly).
+        Ok(thread) => thread.join().unwrap_or(101),
         Err(_) => {
             // No room for a big stack: run on this thread rather than not at all.
-            run_entry(entry);
-            0
+            let body = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+            body.map_or(0, |body| body())
         }
     }
 }
+
+#[cfg(test)]
+#[path = "start_test.rs"]
+mod start_test;
 
 #[cfg(test)]
 mod tests {
