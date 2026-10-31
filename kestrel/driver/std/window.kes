@@ -1,4 +1,6 @@
 // The window: opening it, the frame loop, and time.
+// Opens the window. Called again while the window is open, it gives the window the new size and
+// title and carries on: the frames and the clock do not restart.
 pub native open(width: int, height: int, title: string)
 pub native frame() -> bool
 pub native close()

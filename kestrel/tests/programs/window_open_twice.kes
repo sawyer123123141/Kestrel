@@ -1,9 +1,10 @@
-// env: KESTREL_HEADLESS=1
-// expect: window.open 320 200 "hi"
-// expect-exit: 101
-// expect-stderr: the window is already open on line 8
+// env: KESTREL_HEADLESS=2
+// expect: window.open 320 200 "a"
+// expect: window.open 640 480 "b"
+// expect: vec2(x: 640, y: 480)
 use window
 main() {
-    window.open(320, 200, "hi")
-    window.open(320, 200, "again")
+    window.open(320, 200, "a")
+    window.open(640, 480, "b")
+    print(window.size())
 }

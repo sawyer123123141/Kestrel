@@ -205,6 +205,8 @@ extern "C" {
     pub fn SetTraceLogLevel(log_level: c_int);
     pub fn InitWindow(width: c_int, height: c_int, title: *const c_char);
     pub fn IsWindowReady() -> bool;
+    pub fn SetWindowSize(width: c_int, height: c_int);
+    pub fn SetWindowTitle(title: *const c_char);
     pub fn SetExitKey(key: c_int);
     pub fn WindowShouldClose() -> bool;
     pub fn CloseWindow();

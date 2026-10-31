@@ -117,7 +117,7 @@ enum Kind {
 
 struct Window {
     kind: Kind,
-    /// The size it was opened with: what a headless window reports.
+    /// The size it was opened with, or last opened with: what a headless window reports.
     size: V2,
     /// How many frames have started: the `true`s `frame()` has given.
     frames: u64,
@@ -207,16 +207,25 @@ impl Window {
     }
 }
 
-/// `window.open`: opens the window, or says why it can't.
+/// `window.open`: opens the window, or says why it can't. While the window is open it
+/// applies the size and title instead: the real window is resized and retitled, a headless
+/// one reports the new size, and a replay ignores sizes. Its frames and clock go on.
 pub fn open(settings: &Settings, width: i32, height: i32, title: &[u8]) -> Result<Mode, String> {
     STATE.with_borrow_mut(|state| {
-        match state {
-            State::Open(_) => return Err("the window is already open".to_string()),
-            State::Closed(_) => return Err(after_close("window.open")),
-            State::NotOpened => {}
+        if let State::Closed(_) = state {
+            return Err(after_close("window.open"));
         }
         if width <= 0 || height <= 0 {
             return Err(format!("window.open needs a width and height above 0, not {width} by {height}"));
+        }
+        let size = V2 { x: width as f32, y: height as f32 };
+        if let State::Open(window) = state {
+            match window.kind {
+                Kind::Real { .. } => real::reopen(width, height, title),
+                Kind::Headless { .. } => window.size = size,
+                Kind::Replay => {}
+            }
+            return Ok(window.mode());
         }
         let kind = match (replay::window_mode_for_replay(), settings.headless) {
             (Some(recorded), _) => {
@@ -229,7 +238,6 @@ pub fn open(settings: &Settings, width: i32, height: i32, title: &[u8]) -> Resul
             }
             (None, None) => Kind::Real { time_base: real::init(settings, width, height, title)? },
         };
-        let size = V2 { x: width as f32, y: height as f32 };
         let window = Window { kind, size, frames: 0, close_requested: false };
         let mode = window.mode();
         *state = State::Open(window);

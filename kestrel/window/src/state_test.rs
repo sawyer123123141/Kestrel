@@ -50,10 +50,31 @@ fn calls_before_open_name_the_function() {
 }
 
 #[test]
-fn a_second_open_is_refused() {
+fn a_second_open_applies_the_new_size() {
     on_a_thread(|| {
-        assert_eq!(open(&headless(1), 10, 10, b"a"), Ok(Mode::Headless));
-        assert_eq!(open(&headless(1), 10, 10, b"a"), Err("the window is already open".to_string()));
+        assert_eq!(open(&headless(2), 320, 200, b"a"), Ok(Mode::Headless));
+        let size = |view: Result<View, String>| match view {
+            Ok(View::Fixed(fixed)) => (fixed.size.x, fixed.size.y),
+            other => panic!("a headless window gives fixed values, not {other:?}"),
+        };
+        assert_eq!(size(check_view("window.size")), (320.0, 200.0));
+        assert_eq!(frame(), Ok(true));
+        // Open again: the size changes and the window keeps its frames and its place in the run.
+        assert_eq!(open(&headless(2), 640, 480, b"b"), Ok(Mode::Headless));
+        assert_eq!(size(check_view("window.size")), (640.0, 480.0));
+        assert_eq!(frame(), Ok(true));
+        assert_eq!(frame(), Ok(false), "the frame count did not restart");
+        assert_eq!(size(check_view("window.size")), (640.0, 480.0), "and a closed window keeps the new size");
+    });
+}
+
+#[test]
+fn a_second_open_still_needs_a_size() {
+    on_a_thread(|| {
+        open(&headless(1), 320, 200, b"a").unwrap();
+        let err = open(&headless(1), 0, 480, b"b").unwrap_err();
+        assert_eq!(err, "window.open needs a width and height above 0, not 0 by 480");
+        assert!(matches!(check_view("window.size"), Ok(View::Fixed(f)) if f.size == V2 { x: 320.0, y: 200.0 }));
     });
 }
 

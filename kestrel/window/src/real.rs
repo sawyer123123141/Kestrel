@@ -1,5 +1,5 @@
 //! The real backend's raylib calls that aren't part of drawing: opening the
-//! window, and the queries that ask it for its size and the time. `state.rs`
+//! window, resizing and retitling it, and the queries that ask it for its size and the time. `state.rs`
 //! decides when to call them.
 
 use crate::abi::{c_string, V2};
@@ -44,5 +44,16 @@ pub fn init(settings: &Settings, width: i32, height: i32, title: &[u8]) -> Resul
         // Escape doesn't quit; the program decides.
         rl::SetExitKey(rl::KEY_NULL);
         Ok(rl::GetTime())
+    }
+}
+
+/// `window.open` while the window is open: gives the open window the new size and title.
+pub fn reopen(width: i32, height: i32, title: &[u8]) {
+    let title = c_string(title);
+    // SAFETY: only called while a real window is open, on the thread that opened it; `title` is a
+    // NUL-terminated string that lives through the call (raylib copies it into GLFW).
+    unsafe {
+        rl::SetWindowSize(width, height);
+        rl::SetWindowTitle(title.as_ptr());
     }
 }
