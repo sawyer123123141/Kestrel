@@ -2,6 +2,7 @@ use cranelift_codegen::ir::{types, InstBuilder, MemFlagsData, TrapCode, Value};
 use cranelift_module::Module;
 use kestrel_kir::{self as kir, ExprKind, KTy, UnOp};
 
+use super::divide::pow2_rem_test;
 use super::{cl_type, Check, FuncLowerer};
 
 impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
@@ -66,7 +67,13 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             }
             ExprKind::Unary(UnOp::Neg, _) | ExprKind::Cast(_) => self.arith_expr(e, Check::Emit)?,
             ExprKind::Binary(op, l, r) if l.ty == KTy::Str => self.str_compare(*op, l, r)?,
-            ExprKind::Binary(..) => self.arith_expr(e, Check::Emit)?,
+            ExprKind::Binary(..) => match pow2_rem_test(e) {
+                Some((n, k, is_eq)) => {
+                    let v = self.expr(n)?;
+                    self.mask_test(v, k, is_eq)
+                }
+                None => self.arith_expr(e, Check::Emit)?,
+            },
             // Its checks were proven, so they are left out (or, verifying, kept as a compiler-bug check).
             // The operands carry their own wrappers.
             ExprKind::Proven(inner) => self.arith_expr(inner, self.proven_check())?,
@@ -80,22 +87,26 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             ExprKind::CallIndirect { callee, args, sig } => self.call_indirect(callee, args, sig, None)?.expect("value-returning call"),
             ExprKind::CallVirtual { recv, slot, args, sig, .. } => self.call_virtual(recv, *slot, args, sig, None)?.expect("value-returning call"),
             ExprKind::If { cond, then_body, then_val, else_body, else_val } => {
-                let c = self.expr(cond)?;
+                let sides = [(&then_body[..], then_val.as_deref()), (&else_body[..], else_val.as_deref())];
+                if then_val.is_some() && else_val.is_some() {
+                    if let Some(locals) = self.selectable(sides) {
+                        let t = self.test(cond, true)?;
+                        return Ok(self.select_sides(&t, sides, &locals)?.expect("both sides have a value"));
+                    }
+                }
+                let t = self.test(cond, false)?;
                 let (then_b, else_b, merge) = (self.b.create_block(), self.b.create_block(), self.b.create_block());
                 let result = self.b.append_block_param(merge, ty);
-                self.b.ins().brif(c, then_b, &[], else_b, &[]);
-                for (block, body, val) in [(then_b, then_body, then_val), (else_b, else_body, else_val)] {
-                    self.b.switch_to_block(block);
-                    if self.stmts(body)? {
-                        match val {
-                            Some(v) => {
-                                let x = self.expr(v)?;
-                                self.b.ins().jump(merge, &[x.into()]);
-                            }
-                            None => {
-                                self.b.ins().trap(TrapCode::unwrap_user(1));
-                            }
+                self.b.ins().brif(t.flag, then_b, &[], else_b, &[]);
+                for (then, block, side) in [(true, then_b, sides[0]), (false, else_b, sides[1])] {
+                    match self.branch_side(&t, then, block, side)? {
+                        Some(Some(x)) => {
+                            self.b.ins().jump(merge, &[x.into()]);
                         }
+                        Some(None) => {
+                            self.b.ins().trap(TrapCode::unwrap_user(1));
+                        }
+                        None => {}
                     }
                 }
                 self.b.switch_to_block(merge);

@@ -19,6 +19,7 @@ mod math;
 mod par;
 mod place;
 mod print;
+mod select;
 mod simd;
 mod simd_check;
 mod simd_math;
@@ -137,6 +138,9 @@ pub(crate) struct FuncLowerer<'a, 'b, M: Module> {
     loops: Vec<(Block, Block)>,
     /// The list headers kept in variables for the loops being lowered (see `headers`).
     hdr_cache: Vec<headers::Cached>,
+    /// Values known to be multiples of `2^k`, as `(value, k)`, in the code being lowered: the
+    /// side of a passed `n % 2^k == 0` test (see `select`).
+    exact: Vec<(Value, u32)>,
 }
 
 pub(crate) fn lower_func<M: Module>(
@@ -180,7 +184,7 @@ pub(crate) fn lower_func<M: Module>(
         }
     }
 
-    let mut fl = FuncLowerer { module, strings, shared, b, f, ptr, slots, sret, loops: Vec::new(), hdr_cache: Vec::new() };
+    let mut fl = FuncLowerer { module, strings, shared, b, f, ptr, slots, sret, loops: Vec::new(), hdr_cache: Vec::new(), exact: Vec::new() };
     if fl.stmts(&f.body)? {
         if f.ret.is_some() {
             // The checker guarantees value-returning bodies don't fall off the end.

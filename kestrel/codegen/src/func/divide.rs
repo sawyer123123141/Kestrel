@@ -1,13 +1,13 @@
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{types, InstBuilder, Value};
 use cranelift_module::Module;
-use kestrel_kir::{BinOp, KTy};
+use kestrel_kir::{self as kir, BinOp, ExprKind, KTy};
 use kestrel_runtime::{PANIC_DIV_ZERO, PANIC_OVERFLOW};
 
 use super::{Check, FuncLowerer};
 
 /// A literal divisor as the value `iconst` will actually produce at type `t`.
-fn wrap_literal(t: KTy, c: i64) -> i64 {
+pub(super) fn wrap_literal(t: KTy, c: i64) -> i64 {
     match t {
         KTy::U8 => c & 0xFF,
         KTy::I32 => c as i32 as i64,
@@ -15,7 +15,35 @@ fn wrap_literal(t: KTy, c: i64) -> i64 {
     }
 }
 
+/// `n % 2^k == 0` or `n % 2^k != 0` (`k >= 1`, either side of the compare), as `(n, k, is_eq)`.
+/// A truncated remainder is zero exactly when `2^k` divides `n`, whatever `n`'s sign, so the test
+/// is `n & (2^k - 1)` against zero.
+pub(super) fn pow2_rem_test(e: &kir::Expr) -> Option<(&kir::Expr, u32, bool)> {
+    let ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r) = &e.kind else { return None };
+    let rem = match (&l.kind, &r.kind) {
+        (_, ExprKind::Int(0)) => l,
+        (ExprKind::Int(0), _) => r,
+        _ => return None,
+    };
+    let rem = match &rem.kind {
+        ExprKind::Proven(inner) => inner,
+        _ => rem,
+    };
+    let ExprKind::Binary(BinOp::Rem, n, d) = &rem.kind else { return None };
+    let ExprKind::Int(c) = d.kind else { return None };
+    let c = wrap_literal(n.ty, c);
+    if !n.ty.is_int() || c <= 1 || c & (c - 1) != 0 {
+        return None;
+    }
+    Some((n, c.trailing_zeros(), *op == BinOp::Eq))
+}
+
 impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
+    /// Whether `v` is known to be a multiple of `2^k` in the code being lowered.
+    fn is_multiple(&self, v: Value, k: u32) -> bool {
+        self.exact.iter().any(|&(x, j)| x == v && j >= k)
+    }
+
     /// Integer `/` and `%`. `const_divisor` is the right operand's value when
     /// it is a literal, which lets most of the checks (and the `idiv`) go away.
     pub(super) fn int_div(
@@ -48,6 +76,11 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         }
         if c > 1 && c & (c - 1) == 0 {
             let k = c.trailing_zeros() as i64;
+            if signed && self.is_multiple(a, k as u32) {
+                // `a` is a multiple of `2^k` here, so no rounding is needed: the quotient is the
+                // arithmetic shift and the remainder 0.
+                return Some(if is_div { self.b.ins().sshr_imm_s(a, k) } else { self.iconst(t, 0) });
+            }
             return Some(if signed { self.signed_pow2(is_div, a, t, k) } else { self.unsigned_pow2(is_div, a, k) });
         }
         // Neither the zero check nor MIN / -1 can fire for any other literal. Cranelift turns a

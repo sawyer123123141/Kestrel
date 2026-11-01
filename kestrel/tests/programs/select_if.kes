@@ -1,0 +1,113 @@
+// expect: [0, 1, 7, 2, 5, 8, 16, 3, 19, 6, 14, 9, 9, 17, 17, 4, 12, 20, 20, 7, 7, 15, 15, 10, 23, 10, 40, 18, 18, 18]
+// expect: -1 40 -2
+// expect: -5 40 -7
+// expect: -17 40 -164
+// expect: 1.059 0.349
+// expect: 0.389 0.078999996
+// expect: 0.27 0.17
+// expect: 0.97 0.47000003
+// expect: 1.6700001 0.7700001
+// expect: -16 -1206 -8
+// expect: -12 -904 -6
+// expect: -8 -602 -4
+// expect: -6 0 -3
+// expect: -5 0 1
+// expect: -4 -300 -2
+// expect: -3 0 1
+// expect: -2 0 -1
+// expect: 0 1 0
+// expect: 4 303 2
+// expect: 100 7551 50
+// expect: 70000000 0 3 -1
+// expect: 0.5 -2 -0 0
+// Small `if`s that become selects print what the branch would: collatz lengths, negatives
+// that cycle, a bounce on floats, an exact halving only while the tested value is unchanged, a side
+// that would overflow or divide by zero if it ran, and a value `if`.
+struct Particle {
+    y: float
+    vy: float
+}
+
+pure collatz_len(start: i64) -> int {
+    var n = start
+    var steps = 0
+    while n != 1 and steps < 40 {
+        if n % 2 == 0 { n = n / 2 } else { n = 3 * n + 1 }
+        steps += 1
+    }
+    steps
+}
+
+pure last(start: i64, count: int) -> i64 {
+    var n = start
+    for i from 0 to count {
+        if n % 2 == 0 { n = n / 2 } else { n = 3 * n + 1 }
+    }
+    n
+}
+
+pure halves(n: int) -> int {
+    var m = 0
+    var k = n
+    if k % 4 == 0 {
+        m = k / 4 + k / 2
+        k = k + 3
+        m = m * 100 + k / 2
+    }
+    m
+}
+
+pure odd_or_half(n: int) -> int {
+    var m = 7
+    if n % 2 != 0 { m = 1 } else { m = n / 2 }
+    m
+}
+
+pure guarded(x: int) -> int {
+    var y = -1
+    if x < 100 { y = x * 10000000 } else { y = 0 }
+    y
+}
+
+pure share(n: int, d: int) -> int {
+    var q = -1
+    if d != 0 { q = n / d }
+    q
+}
+
+pure pick(a: float, b: float) -> float {
+    if a < b { b - a } else { -a }
+}
+
+main() {
+    var lens = list[int]()
+    for s from 1 to 31 {
+        lens.add(collatz_len(s))
+    }
+    print(lens)
+    for s in [-1, -5, -17] {
+        print(s, collatz_len(s), last(s, 7))
+    }
+    var ps = list[Particle]()
+    for i from 0 to 5 {
+        ps.add(Particle(y: float(i) * 0.25 - 0.5, vy: float(i) * 0.3 - 0.4))
+    }
+    for step from 0 to 3 {
+        for p in ps {
+            p.vy -= 0.01
+            p.y += p.vy * 0.5
+            if p.y < 0.0 {
+                p.y = -p.y
+                p.vy = -p.vy * 0.9
+            }
+        }
+    }
+    for p in ps {
+        print(p.y, p.vy)
+    }
+    for n in [-16, -12, -8, -6, -5, -4, -3, -2, 0, 4, 100] {
+        print(n, halves(n), odd_or_half(n))
+    }
+    print(guarded(7), guarded(2147483647), share(17, 5), share(17, 0))
+    print(pick(1.5, 2.0), pick(2.0, 1.5), pick(0.0, -0.0), pick(-0.0, 0.0))
+}

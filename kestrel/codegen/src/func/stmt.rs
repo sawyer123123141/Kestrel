@@ -117,17 +117,23 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         self.b.def_var(v, addr);
     }
 
+    /// An `if` statement: straight-line code with selects when it is small enough (see `select`),
+    /// else a branch.
     fn if_stmt(&mut self, cond: &kir::Expr, then_body: &[kir::Stmt], else_body: &[kir::Stmt]) -> Result<bool, String> {
-        let c = self.expr(cond)?;
+        let sides = [(then_body, None), (else_body, None)];
+        if let Some(locals) = self.selectable(sides) {
+            let t = self.test(cond, true)?;
+            self.select_sides(&t, sides, &locals)?;
+            return Ok(true);
+        }
+        let t = self.test(cond, false)?;
         let (then_b, else_b, merge) = (self.b.create_block(), self.b.create_block(), self.b.create_block());
-        self.b.ins().brif(c, then_b, &[], else_b, &[]);
-        self.b.switch_to_block(then_b);
-        let then_falls = self.stmts(then_body)?;
+        self.b.ins().brif(t.flag, then_b, &[], else_b, &[]);
+        let then_falls = self.branch_side(&t, true, then_b, sides[0])?.is_some();
         if then_falls {
             self.b.ins().jump(merge, &[]);
         }
-        self.b.switch_to_block(else_b);
-        let else_falls = self.stmts(else_body)?;
+        let else_falls = self.branch_side(&t, false, else_b, sides[1])?.is_some();
         if else_falls {
             self.b.ins().jump(merge, &[]);
         }

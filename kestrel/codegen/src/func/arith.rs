@@ -29,6 +29,19 @@ fn bits(t: KTy) -> u32 {
     }
 }
 
+/// The float compare of the comparison `op`: ordered, so false when either value is NaN, but
+/// for `!=`, which is true.
+pub(super) fn float_cc(op: BinOp) -> FloatCC {
+    match op {
+        BinOp::Eq => FloatCC::Equal,
+        BinOp::Ne => FloatCC::NotEqual,
+        BinOp::Lt => FloatCC::LessThan,
+        BinOp::Gt => FloatCC::GreaterThan,
+        BinOp::Le => FloatCC::LessThanOrEqual,
+        _ => FloatCC::GreaterThanOrEqual,
+    }
+}
+
 impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
     /// `a op b` (`operands`) where both operands have type `t`. `const_divisor` is `b`'s
     /// value when it is an integer literal (used only by `/` and `%`). `check` says what
@@ -128,15 +141,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
 
     fn compare(&mut self, op: BinOp, a: Value, b: Value, t: KTy) -> Value {
         if t.is_float() {
-            let cc = match op {
-                BinOp::Eq => FloatCC::Equal,
-                BinOp::Ne => FloatCC::NotEqual,
-                BinOp::Lt => FloatCC::LessThan,
-                BinOp::Gt => FloatCC::GreaterThan,
-                BinOp::Le => FloatCC::LessThanOrEqual,
-                _ => FloatCC::GreaterThanOrEqual,
-            };
-            return self.b.ins().fcmp(cc, a, b);
+            return self.b.ins().fcmp(float_cc(op), a, b);
         }
         let signed = t.is_signed();
         let cc = match op {
