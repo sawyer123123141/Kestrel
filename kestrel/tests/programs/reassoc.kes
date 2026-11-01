@@ -1,0 +1,31 @@
+// expect: 391887165
+// expect: 1357396708
+// expect: 903835208
+// expect: 1538152374
+// The voxel world's hash (`bench/voxels3d/voxels3d.kes`) over small grids: the xor, and, or
+// chains a loop regroups (performance round, decision 9) give the same bits.
+pure hash(x: int, y: int, z: int, seed: int) -> int {
+    var h = i64(x) * 73856093 ^ i64(y) * 19349663 ^ i64(z) * 83492791 ^ i64(seed) * 1610612741
+    h = h & 0x7FFFFFFF
+    h = (h ^ (h >> 13)) * 0x5BD1E995 & 0x7FFFFFFF
+    int(h ^ (h >> 15))
+}
+
+pure grid(seed: int, lo: int) -> int {
+    var acc = 0
+    for y from lo to lo + 5 {
+        for z from lo to lo + 5 {
+            for x from lo to lo + 5 {
+                acc = acc ^ hash(x, y, z, seed) ^ (x & y & z & seed) ^ (x | 3 | seed | y)
+            }
+        }
+    }
+    acc
+}
+
+main() {
+    print(grid(1337, 0))
+    print(grid(-7, -3))
+    print(grid(2147483647, 100))
+    print(grid(-2147483647 - 1, -2147483647 - 1))
+}
