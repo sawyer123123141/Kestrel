@@ -86,7 +86,7 @@ pub fn split(indices: &[i32], max: usize) -> Vec<Part> {
     const NONE: u32 = u32::MAX;
     let mut seen = vec![(NONE, 0u16); count];
     let mut parts: Vec<Part> = Vec::new();
-    for triangle in indices.chunks_exact(3) {
+    for triangle in indices.as_chunks::<3>().0 {
         // Whether the vertices the triangle adds to the current part (each one once) still fit.
         let fits = parts.last().is_some_and(|part| {
             let current = (parts.len() - 1) as u32;

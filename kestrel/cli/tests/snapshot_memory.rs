@@ -103,7 +103,13 @@ fn write(name: &str, src: &str) -> PathBuf {
 
 /// Runs the program at `path` and gives the program arena's size it reported.
 fn arena_bytes(path: &Path) -> u64 {
-    let out = hermetic(Command::new(env!("CARGO_BIN_EXE_kestrel")).arg("run").arg(path)).env("KESTREL_ARENA_REPORT", "1").output().unwrap();
+    arena_bytes_with(path, "1")
+}
+
+/// `arena_bytes`, with `KESTREL_POISON` set to `poison`.
+fn arena_bytes_with(path: &Path, poison: &str) -> u64 {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kestrel"));
+    let out = hermetic(cmd.arg("run").arg(path)).env("KESTREL_POISON", poison).env("KESTREL_ARENA_REPORT", "1").output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{}: exit {:?}\n{stderr}", path.display(), out.status.code());
     let line = stderr
@@ -185,13 +191,15 @@ main() {{
 
 #[test]
 fn a_rollback_session_of_a_list_holding_game_stops_allocating_after_its_first_lap() {
-    let run = |name: &str, laps: u32| {
+    // Poisoning keeps every block an arena frees, and the two arenas of each of 200 laps' 163,200
+    // frames would keep about 20 GB; so the 200-lap run has it off. The 2-lap run keeps it on.
+    let run = |name: &str, laps: u32, poison: &str| {
         let path = write(name, &session_program(laps));
-        let out = hermetic(Command::new(env!("CARGO_BIN_EXE_kestrel")).arg("run").arg(&path)).output().unwrap();
+        let out = hermetic(Command::new(env!("CARGO_BIN_EXE_kestrel")).arg("run").arg(&path)).env("KESTREL_POISON", poison).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true true true true -1 -1", "{name}");
-        arena_bytes(&path)
+        arena_bytes_with(&path, poison)
     };
-    let (few, many) = (run("session_2", 2), run("session_200", 200));
+    let (few, many) = (run("session_2", 2, "1"), run("session_200", 200, "0"));
     assert_eq!(few, many, "the sessions grew from {few} bytes (2 laps) to {many} bytes (200 laps)");
 }

@@ -16,6 +16,7 @@ fn broken(k: i64, text: &str) -> String {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_compile_error_keeps_the_old_code_then_a_fix_reloads() {
     let mut s = start("error", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);
@@ -44,6 +45,7 @@ fn a_save_still_being_written_is_waited_for() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_error_after_a_reload_reports_the_new_file_and_keeps_the_latest_good_code() {
     // Review Focus 2.
     let mut s = start("error_after_reload", &counter(2), 100_000, &[]);
@@ -67,6 +69,7 @@ fn with_helper() -> String {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_module_only_a_broken_edit_uses_is_watched() {
     let mut s = start("helper_broken", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);
@@ -84,6 +87,7 @@ fn a_module_only_a_broken_edit_uses_is_watched() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_module_written_after_the_edit_that_uses_it_reloads() {
     let mut s = start("helper_missing", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);

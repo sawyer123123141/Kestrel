@@ -17,6 +17,7 @@ use common::hermetic;
 use common::session::Session;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_constant_edit_keeps_the_counter() {
     let mut s = start("constant", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);
@@ -27,6 +28,7 @@ fn a_constant_edit_keeps_the_counter() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_shape_change_resets_with_a_sentence() {
     let mut s = start("shape", &counter(2), 100_000, &[]);
     begin(&mut s, 2, 3);
@@ -42,6 +44,7 @@ fn a_shape_change_resets_with_a_sentence() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_setup_only_edit_keeps_state_and_hints() {
     // Review Focus 3.
     let mut s = start("setup_only", &counter(2), 100_000, &[]);
@@ -55,6 +58,7 @@ fn a_setup_only_edit_keeps_state_and_hints() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn two_saves_give_two_reloads() {
     let mut s = start("two_saves", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);
@@ -76,6 +80,7 @@ fn slow_counter(k: i64) -> String {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_save_during_a_compile_is_not_lost() {
     // Review Focus 1: the second save lands while the first one compiles, and must still show.
     let mut s = start("during_compile", &slow_counter(2), 100_000, &[]);
@@ -138,11 +143,13 @@ fn never_reloads(mut s: Session, frames: usize) -> Vec<String> {
 const FRAMES: u32 = 150;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_main_program_never_reloads() {
     never_reloads(start("main", MAIN, FRAMES, &[]), FRAMES as usize);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn no_reload_and_record_never_reload() {
     let slow = counter(2).replace("time.sleep(0.005)", "time.sleep(0.02)");
     never_reloads(start("no_reload", &slow, FRAMES, &["--no-reload"]), FRAMES as usize);
@@ -162,6 +169,7 @@ fn no_reload_and_record_never_reload() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_literal_string_in_state_survives() {
     // The label points into the first module's data, which stays mapped after the swap.
     let labelled = |k: i64| {
@@ -230,6 +238,7 @@ fn drew_the_texture(s: &Session, from: usize) -> bool {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_gpu_object_in_state_survives() {
     let mut s = start_texture("gpu");
     let last = begin(&mut s, 2, 3);
@@ -241,6 +250,7 @@ fn a_gpu_object_in_state_survives() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_shape_change_drops_the_texture_and_loads_it_again() {
     // The old module's `reload_drop` lets go of the texture, the new `setup` loads it again, and
     // the program goes on drawing it.
@@ -255,6 +265,7 @@ fn a_shape_change_drops_the_texture_and_loads_it_again() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_edit_that_removes_setup_and_frame_keeps_the_old_code() {
     let mut s = start("to_main", &counter(2), 100_000, &[]);
     let last = begin(&mut s, 2, 3);
@@ -266,6 +277,7 @@ fn an_edit_that_removes_setup_and_frame_keeps_the_old_code() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_edit_to_a_module_in_a_folder_reloads() {
     // The counter's constant lives in `net/tune.kes`, which the program loads as `net.tune`.
     let dir = scratch("folder");

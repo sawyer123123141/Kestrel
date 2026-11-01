@@ -55,6 +55,7 @@ fn arena_bytes(exe: &Path, frames: u32) -> u64 {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn text_built_for_a_native_does_not_grow_the_program_arena() {
     let src = frame_loop("", "        draw.text(\"n {n}\", vec2(0, 0), 10, draw.WHITE)\n");
     let exe = build("text_scratch", &src);
@@ -66,6 +67,7 @@ fn text_built_for_a_native_does_not_grow_the_program_arena() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_heap_constant_in_the_frame_loop_does_not_grow_the_program_arena() {
     // A constant array is built once, before `main`, and read in place. Before that, each
     // `PALETTE[n % 3]` built the whole array again in the program arena (about 4.78 MB over
@@ -80,6 +82,7 @@ fn a_heap_constant_in_the_frame_loop_does_not_grow_the_program_arena() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn text_kept_in_a_variable_does_grow_it() {
     // The control: a string stored in a variable stays in the program arena, so the
     // measurement can see growth. (`"n {n}"` is about 7 bytes a frame, which comes to 0.6 MiB
@@ -97,6 +100,7 @@ fn text_kept_in_a_variable_does_grow_it() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn text_built_with_plus_or_a_string_method_for_a_native_does_not_grow_the_program_arena() {
     // Every argument that builds a new string goes in the scratch arena, not only `"{...}"`:
     // a string `+`, a string method, a list's `join` and `s[i]`. Before, `+` grew the arena by
