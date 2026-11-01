@@ -5,8 +5,11 @@
 //! whose first name (`net`) is then taken in the file. When one of two modules sharing a last name
 //! was written as a single name, it keeps the short name.
 
-use super::{Rewriter, Scoped};
+use std::collections::HashMap;
+
+use super::{Export, Rewriter, Scoped};
 use crate::ast::UseClause;
+use crate::diag::Diagnostic;
 use crate::span::Span;
 
 impl Rewriter<'_> {
@@ -31,10 +34,6 @@ impl Rewriter<'_> {
 
     /// `use m` or `use a.b.m` (as `written`): module `m` imported whole.
     fn import_module(&mut self, written: &str, span: Span, m: usize) {
-        if let Some(msg) = self.module_and_item(written, m) {
-            self.error(span, msg);
-            return;
-        }
         let single = !written.contains('.');
         if !single {
             let first = written.split('.').next().unwrap_or(written);
@@ -88,38 +87,22 @@ impl Rewriter<'_> {
         self.scope.insert(short.to_string(), Scoped::Module(m));
         self.shorts.insert(short.to_string(), single);
     }
+}
 
-    /// The module this file imported whole as `written` (a name or a dotted name), if any.
-    pub(super) fn module_written(&self, written: &str) -> Option<usize> {
-        if written.contains('.') {
-            return self.chains.get(written).copied();
-        }
-        match self.scope.get(written) {
-            Some(Scoped::Module(m)) => Some(*m),
-            _ => None,
-        }
-    }
-
-    /// The error for importing module `m` as `written` when one full name would mean both a module
-    /// and an item: `use net` whose `net.kes` has a `pub` item `packet`, and `use net.packet`, in
-    /// either order (the error is at the second).
-    fn module_and_item(&self, written: &str, m: usize) -> Option<String> {
-        let clash = |dotted: &str, module: usize, item: &str, holder: usize| {
-            self.exports[holder].get(item).filter(|e| e.is_pub).map(|_| {
-                format!("`{dotted}` is both the module {} and `{item}` in {}; rename one of them", self.files[module], self.files[holder])
-            })
-        };
-        if let Some((prefix, item)) = written.rsplit_once('.') {
-            if let Some(msg) = self.module_written(prefix).and_then(|holder| clash(written, m, item, holder)) {
-                return Some(msg);
+/// An error for each module `P` (not the entry file) that has an item `x` while module `P.x` is
+/// loaded too: their linked names would meet (a method `make` of the struct `net.packet` is
+/// `net.packet.make`, like the function `make` of module `net.packet`), so the program can't have
+/// both. The error is at the item, whatever its kind and whether or not it is `pub`.
+pub(super) fn module_and_item(names: &[String], files: &[String], exports: &[HashMap<String, Export>]) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    for (j, dotted) in names.iter().enumerate().skip(1) {
+        let Some((prefix, item)) = dotted.rsplit_once('.') else { continue };
+        for (i, holder) in names.iter().enumerate().skip(1) {
+            if let Some(e) = exports[i].get(item).filter(|_| holder == prefix) {
+                let msg = format!("`{dotted}` is both the module {} and `{item}` in {}; rename one of them", files[j], files[i]);
+                diags.push(Diagnostic::error(e.span, msg));
             }
         }
-        let below = format!("{written}.");
-        let mut chains: Vec<(&String, &usize)> = self.chains.iter().collect();
-        chains.sort();
-        chains.into_iter().find_map(|(chain, &module)| {
-            let item = chain.strip_prefix(&below).filter(|rest| !rest.contains('.'))?;
-            clash(chain, module, item, m)
-        })
     }
+    diags
 }

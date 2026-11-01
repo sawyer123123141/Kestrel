@@ -36,6 +36,8 @@ struct Export {
     qualified: String,
     is_pub: bool,
     kind: ItemKind,
+    /// The item's name where it is declared.
+    span: Span,
 }
 
 /// What a name means inside one module.
@@ -67,14 +69,14 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
                 .items
                 .iter()
                 .filter_map(|item| match item {
-                    Item::Fn(f) => Some((f.name.clone(), f.is_pub, ItemKind::Fn)),
-                    Item::Struct(s) => Some((s.name.clone(), s.is_pub, ItemKind::Struct)),
-                    Item::Enum(e) => Some((e.name.clone(), e.is_pub, ItemKind::Enum)),
-                    Item::Interface(i) => Some((i.name.clone(), i.is_pub, ItemKind::Interface)),
-                    Item::Const(c) => Some((c.bind.name.clone(), c.is_pub, ItemKind::Const)),
+                    Item::Fn(f) => Some((f.name.clone(), f.is_pub, ItemKind::Fn, f.name_span)),
+                    Item::Struct(s) => Some((s.name.clone(), s.is_pub, ItemKind::Struct, s.name_span)),
+                    Item::Enum(e) => Some((e.name.clone(), e.is_pub, ItemKind::Enum, e.name_span)),
+                    Item::Interface(i) => Some((i.name.clone(), i.is_pub, ItemKind::Interface, i.name_span)),
+                    Item::Const(c) => Some((c.bind.name.clone(), c.is_pub, ItemKind::Const, c.bind.span)),
                     Item::Use(_) => None,
                 })
-                .map(|(name, is_pub, kind)| (name.clone(), Export { qualified: qualify(&name), is_pub, kind }))
+                .map(|(name, is_pub, kind, span)| (name.clone(), Export { qualified: qualify(&name), is_pub, kind, span }))
                 .collect()
         })
         .collect();
@@ -84,7 +86,7 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
     let mut items = Vec::new();
     let mut proves = Vec::new();
     let mut hex_literals = Vec::new();
-    let mut diags = Vec::new();
+    let mut diags = imports::module_and_item(&names, &files, &exports);
     for (i, m) in modules.into_iter().enumerate() {
         expr_count = expr_count.max(m.program.expr_count);
         bind_count = bind_count.max(m.program.bind_count);
@@ -97,7 +99,6 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
             used: Vec::new(),
             exports: &exports,
             names: &names,
-            files: &files,
             module: i,
             locals: Vec::new(),
             placeholders: Vec::new(),
@@ -141,8 +142,6 @@ struct Rewriter<'a> {
     exports: &'a [HashMap<String, Export>],
     /// Each module's full name, by index; 0 is the entry file.
     names: &'a [String],
-    /// Each module's file from the entry file's folder, by index.
-    files: &'a [String],
     /// The module being rewritten, an index into `names`; 0 is the entry file.
     module: usize,
     /// The locals and parameters in scope at this point of the module's code.

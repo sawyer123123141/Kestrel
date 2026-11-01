@@ -16,6 +16,9 @@ pub struct Analysis {
     /// from `program`). A module is one source today; a built-in module of several parts would be
     /// one module of several sources.
     pub uses: Vec<Vec<UseDecl>>,
+    /// The module each `use` clause names, by module in the order the clauses are written (see
+    /// `kestrel_syntax::link::Module::resolved`); a module is the source of the same index.
+    pub resolved: Vec<Vec<Option<usize>>>,
     /// The linked program, when every file parsed.
     pub program: Option<Program>,
     /// The checker's tables, when the program linked. They may come with errors (see
@@ -39,8 +42,9 @@ impl Analysis {
 pub fn analyze(path: &str, src: &str, needs_main: bool, read: Read) -> Analysis {
     let Loaded { files, modules, mut diags, missing, .. } = load(path, src, read);
     let uses = modules.iter().map(|m| use_decls(&m.program)).collect();
+    let resolved = modules.iter().map(|m| m.resolved.clone()).collect();
     if diags.iter().any(Diagnostic::is_error) {
-        return Analysis { sources: files, uses, program: None, tables: None, diags };
+        return Analysis { sources: files, uses, resolved, program: None, tables: None, diags };
     }
     diags.extend(missing);
     let (mut program, link_diags) = link(modules, kestrel_check::is_reserved_name);
@@ -53,7 +57,7 @@ pub fn analyze(path: &str, src: &str, needs_main: bool, read: Read) -> Analysis 
         diags.extend(check_diags);
         Some(tables)
     };
-    Analysis { sources: files, uses, program: Some(program), tables, diags }
+    Analysis { sources: files, uses, resolved, program: Some(program), tables, diags }
 }
 
 fn use_decls(p: &Program) -> Vec<UseDecl> {

@@ -171,6 +171,11 @@ fn finding_a_module_says_what_is_wrong() {
     let err = full_errors(&above);
     assert!(err.contains("error: can't find module `game`: there's no `game.kes` next to this file\n"), "{err}");
     assert!(err.contains("a module finds modules next to it or in folders below it, never above"), "{err}");
+    // Only when there is one above: a misspelt name gets no such help.
+    let typo = project("typo_below", &[("main.kes", "use net.packet\nmain() {}\n"), ("game.kes", "pub f() {}\n"), ("net/packet.kes", "use gmae\n")]);
+    let err = full_errors(&typo);
+    assert!(err.contains("error: can't find module `gmae`: there's no `gmae.kes` next to this file\n"), "{err}");
+    assert!(!err.contains("never above"), "{err}");
     // A dotted name is never a built-in module.
     let folder = project("builtin_folder", &[("main.kes", "use draw.shapes\nmain() {}\n"), ("draw/shapes.kes", "pub f() {}\n")]);
     assert_eq!(errors(&folder), "1:5: error: `draw` is a built-in module, so a folder can't be called draw; rename the folder\n");
@@ -202,8 +207,51 @@ fn names_from_folders_say_what_is_wrong() {
     let net = "pub packet() -> int {\n    1\n}\n";
     let main = "use net\nuse net.packet\n\nmain() {}\n";
     let dir = project("module_and_item", &[("main.kes", main), ("net.kes", net), ("net/packet.kes", PACKET)]);
-    let want = "2:5: error: `net.packet` is both the module net/packet.kes and `packet` in net.kes; rename one of them\n";
+    let want = "1:5: error: `net.packet` is both the module net/packet.kes and `packet` in net.kes; rename one of them\n";
     assert_eq!(errors(&dir), want);
+}
+
+#[test]
+fn a_module_and_an_item_with_one_full_name_are_refused_across_files() {
+    // No file uses both: `main` uses `net`, `other` uses `net.packet`. The method `make` of the
+    // struct `net.packet` and the function `make` of module `net.packet` would link to one name.
+    let net = "struct packet {\n    n: int\n\n    make(self) -> int { self.n }\n}\n\npub mk() -> int {\n    packet(n: 1).make()\n}\n";
+    let other = "use net.packet\n\npub f() -> int {\n    packet.make(2).n\n}\n";
+    let main = "use net\nuse other\n\nmain() {\n    print(net.mk(), other.f())\n}\n";
+    let files = [("main.kes", main), ("other.kes", other), ("net.kes", net), ("net/packet.kes", PACKET)];
+    let dir = project("module_and_item_apart", &files);
+    let want = "1:8: error: `net.packet` is both the module net/packet.kes and `packet` in net.kes; rename one of them\n";
+    assert_eq!(errors(&dir), want);
+}
+
+#[test]
+fn a_folders_own_file_has_one_full_name_however_it_is_reached() {
+    // `net/y.kes` reaches `net/net.kes` as `net`, beside it: its full name is still `net`.
+    let y = "use net\n\npub f() {\n    net.nothing()\n}\n";
+    let main = "use net.y\n\nmain() {\n    y.f()\n}\n";
+    let dir = project("own_file_name", &[("main.kes", main), ("net/y.kes", y), ("net/net.kes", "pub g() {}\n")]);
+    assert_eq!(errors(&dir), "4:9: error: `net` has no `nothing`\n");
+}
+
+#[test]
+fn a_type_below_the_entry_may_name_a_module_by_its_full_name() {
+    let x = "use packet\n\npub f() -> int {\n    let p: net.packet.Packet = packet.make(6)\n    p.n\n}\n";
+    let main = "use net.x\n\nmain() {\n    print(x.f())\n}\n";
+    let dir = project("full_type_below", &[("main.kes", main), ("net/x.kes", x), ("net/packet.kes", PACKET)]);
+    assert_eq!(run_ok(&dir), "6\n");
+}
+
+#[test]
+fn the_report_keeps_another_modules_name_that_starts_like_this_ones() {
+    // In `net.kes`, `net.packet.P` is module `net.packet`'s, not `packet.P` of `net`.
+    let net = "pub struct Stack[T] {\n    items: list[T] = []\n\n    put(var self, v: T) { self.items.add(v) }\n}\n";
+    let main = "use net\nuse net.packet\n\nmain() {\n    var s = net.Stack[net.packet.P]()\n    s.put(packet.P(n: 1))\n    print(s.items.len)\n}\n";
+    let dir = project("report_longer", &[("main.kes", main), ("net.kes", net), ("net/packet.kes", "pub struct P {\n    n: int\n}\n")]);
+    let out = kestrel(&["check", "--report"], &dir.join("main.kes"));
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("`Stack[net.packet.P].put`"), "{text}");
+    assert!(!text.contains("Stack[packet.P]"), "{text}");
 }
 
 #[test]

@@ -50,15 +50,18 @@ pub fn resolve(a: &Analysis, offset: u32) -> Option<Symbol> {
 /// A name in a `use` line of the entry file: the item it imports, or the module's file.
 fn in_uses(a: &Analysis, offset: u32) -> Option<Symbol> {
     let within = |s: Span| s.start <= offset && offset <= s.end;
-    for c in a.uses.first()?.iter().flat_map(|u| &u.clauses) {
+    let resolved = a.resolved.first()?;
+    for (k, c) in a.uses.first()?.iter().flat_map(|u| &u.clauses).enumerate() {
+        // The module the loader found for the clause (a module is the source of its index), so a
+        // second spelling of one file's name (`Net.packet` on a disk that ignores case) finds it.
+        let source = resolved.get(k).copied().flatten().and_then(|m| a.sources.get(m));
         if within(c.module_span) {
-            // The entry file is in the folder full names start from, so its `use` names are full.
-            let source = a.sources.iter().find(|s| s.module == c.module)?;
+            let source = source?;
             return Some(Symbol::new(format!("module {}", c.module), Some(Span { start: source.base, end: source.base })));
         }
         if let Some((name, _)) = c.names.iter().find(|(_, s)| within(*s)) {
             let (p, t) = (a.program.as_ref()?, a.tables.as_ref()?);
-            return Resolver { p, t }.named(&format!("{}.{name}", c.module));
+            return Resolver { p, t }.named(&format!("{}.{name}", source?.module));
         }
     }
     None

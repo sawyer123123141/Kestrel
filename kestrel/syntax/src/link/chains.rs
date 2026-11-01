@@ -64,10 +64,13 @@ impl Rewriter<'_> {
     }
 
     /// A type, interface or rule written with its module (`net.packet.Packet`): its qualified name,
-    /// or `None` after saying what is wrong.
+    /// or `None` after saying what is wrong. Besides the names a `use` wrote, a type may name a
+    /// module this file uses by its full name (`net.packet.Packet` inside `net/` after `use packet`):
+    /// no local can hide a type.
     pub(super) fn full_type(&mut self, name: &str, span: Span) -> Option<String> {
         let (prefix, item) = name.rsplit_once('.')?;
-        match self.module_named(prefix) {
+        let full = || self.used.iter().find(|&&m| self.names[m] == prefix).map(|&m| ModRef::One(m));
+        match self.module_named(prefix).or_else(full) {
             Some(r) => self.item_of(r, item, span, span),
             None => {
                 let msg = format!("`{prefix}` isn't a module this file uses; add `use {prefix}`, or import the type: `use {{ {item} from {prefix} }}`");

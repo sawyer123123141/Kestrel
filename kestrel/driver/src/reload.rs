@@ -91,3 +91,24 @@ impl Reads {
         self.0.into_inner()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::compile_for_reload;
+    use crate::DiagStyle;
+
+    #[test]
+    fn a_compile_with_two_files_for_one_module_watches_both() {
+        // Deleting either `net.kes` or `net/net.kes` fixes the error, so a reload must see both.
+        let dir = std::env::temp_dir().join("kestrel_driver_could_be");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("net")).unwrap();
+        std::fs::write(dir.join("main.kes"), "use net\nmain() {}\n").unwrap();
+        std::fs::write(dir.join("net.kes"), "pub f() {}\n").unwrap();
+        std::fs::write(dir.join("net").join("net.kes"), "pub f() {}\n").unwrap();
+        let Err(failure) = compile_for_reload(&dir.join("main.kes"), DiagStyle::Short, false) else { panic!("it compiled") };
+        assert!(failure.text.contains("could be net.kes or net/net.kes"), "{}", failure.text);
+        let watched: Vec<_> = failure.files.iter().map(|f| f.path.clone()).collect();
+        assert!(watched.contains(&dir.join("net.kes")) && watched.contains(&dir.join("net").join("net.kes")), "{watched:?}");
+    }
+}

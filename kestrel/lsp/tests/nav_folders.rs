@@ -74,3 +74,23 @@ fn a_modules_last_name_leads_to_its_item() {
         assert_eq!(defined(&a, at("packet.make", into)), (1, "make".to_string()));
     }
 }
+
+#[test]
+fn a_second_spelling_of_a_modules_name_leads_to_its_file() {
+    // On a disk that ignores case, `Net.packet` and `net.packet` are one file, named as first loaded.
+    if !cfg!(windows) {
+        return;
+    }
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("lsp_two_spellings");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("net")).unwrap();
+    std::fs::write(dir.join("net").join("packet.kes"), PACKET).unwrap();
+    let main = "use Net.packet\nuse net.packet\n\nmain() {\n    print(packet.make(1).n)\n}\n";
+    let path = dir.join("main.kes");
+    let a = analyze(&path.to_string_lossy(), main, true, &|p: &Path| std::fs::read_to_string(p).ok());
+    assert!(a.diags.is_empty(), "{:?}", a.diags);
+    assert_eq!(a.sources.len(), 2);
+    let second = main.find("net.packet").unwrap() as u32 + 1;
+    let m = resolve(&a, second).expect("the module");
+    assert_eq!(a.source_at(m.def.unwrap().start), 1);
+}

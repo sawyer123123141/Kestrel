@@ -105,15 +105,18 @@ impl Owners {
 /// A name as the report writes it: a module's function without the module's full name
 /// (`geom.helper` is `helper` in `geom.kes`, `net.packet.helper` is `helper` in `net/packet.kes`),
 /// and the same for each of a copy's types (`geom.Stack[geom.Item].put` is `Stack[Item].put`).
-/// `line` is where the function is declared.
+/// A name of a module whose full name only starts with it keeps its module (`net.packet.P` stays
+/// whole in `net.kes`). `line` is where the function is declared.
 pub(super) fn plain_name(m: &Module, name: &str, line: u32) -> String {
     let Some(module) = m.module_names.get(unpack_line(line).1 as usize) else { return name.to_string() };
     let prefix = format!("{module}.");
+    let longer: Vec<String> = m.module_names.iter().filter(|n| n.len() > module.len() && n.starts_with(&prefix)).map(|n| format!("{n}.")).collect();
     // Each run of name characters (a dotted path) loses a leading `module.`.
     let mut out = String::with_capacity(name.len());
     let mut word = String::new();
     let flush = |word: &mut String, out: &mut String| {
-        out.push_str(word.strip_prefix(prefix.as_str()).unwrap_or(word));
+        let other = longer.iter().any(|l| word.starts_with(l.as_str()));
+        out.push_str(word.strip_prefix(prefix.as_str()).filter(|_| !other).unwrap_or(word));
         word.clear();
     };
     for c in name.chars() {

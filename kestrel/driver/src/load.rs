@@ -112,8 +112,10 @@ impl Loader<'_> {
         let mut place: Vec<String> = here.iter().cloned().chain(parts[..parts.len() - 1].iter().map(|p| p.to_string())).collect();
         let (path, text) = match self.read(&flat) {
             // An editor's reader may give the same text for any file of that name, so the folder's
-            // own file is looked for on disk here.
+            // own file is looked for on disk here; it is read too, so that hot reload watches it
+            // (deleting it fixes the error).
             Some(_) if own.is_file() => {
+                self.read(&own);
                 let msg = format!("`{0}` could be {1}.kes or {1}/{2}.kes; remove or rename one of them", c.module, parts.join("/"), last);
                 self.missing.push(Diagnostic::error(c.module_span, msg));
                 return None;
@@ -126,7 +128,8 @@ impl Loader<'_> {
                 }
                 None => {
                     let d = Diagnostic::error(c.module_span, not_found(&c.module, &parts, &own_folder));
-                    self.missing.push(if here.is_empty() || self.files[i].builtin { d } else { d.with_help(ABOVE) });
+                    let above = !self.files[i].builtin && is_above(&dir, here.len(), &parts);
+                    self.missing.push(if above { d.with_help(ABOVE) } else { d });
                     return None;
                 }
             },
@@ -135,7 +138,7 @@ impl Loader<'_> {
         if let Some(&found) = self.by_key.get(&k) {
             return Some(found);
         }
-        let full = self.folders[i].iter().map(String::as_str).chain(parts.iter().copied()).collect::<Vec<_>>().join(".");
+        let full = full_name(&place, last);
         let file = place.iter().map(String::as_str).chain([format!("{last}.kes").as_str()]).collect::<Vec<_>>().join("/");
         self.by_key.insert(k, self.files.len());
         self.folders.push(place);
@@ -161,6 +164,27 @@ impl Loader<'_> {
         push_file(&mut self.files, builtin::path(name), text.to_string(), true, name.to_string(), format!("{name}.kes"));
         self.files.len() - 1
     }
+}
+
+/// The full name of the file `last.kes` in folder `place` (from the entry file's folder): its
+/// path with `.` for `/` and without `.kes`, where a folder's own file `x/x.kes` is `x`. It comes
+/// from the path alone, so it is the same however the file was reached.
+fn full_name(place: &[String], last: &str) -> String {
+    let mut names: Vec<&str> = place.iter().map(String::as_str).collect();
+    if names.last() != Some(&last) {
+        names.push(last);
+    }
+    names.join(".")
+}
+
+/// Whether the module named `parts`, missing next to a file in folder `dir` (`depth` folders
+/// below the entry file's), is in one of the folders above it, up to the entry file's.
+fn is_above(dir: &Path, depth: usize, parts: &[&str]) -> bool {
+    let last = parts[parts.len() - 1];
+    dir.ancestors().skip(1).take(depth).any(|up| {
+        let folder = parts.iter().fold(up.to_path_buf(), |d, p| d.join(p));
+        folder.with_extension("kes").is_file() || folder.join(format!("{last}.kes")).is_file()
+    })
 }
 
 /// Why module `module` (its names `parts`) isn't there: `folder` is the folder named like it,
@@ -218,7 +242,16 @@ fn same_file(a: &Path, b: &Path) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::{lexical, load};
+    use super::{full_name, lexical, load};
+
+    #[test]
+    fn a_full_name_comes_from_the_path_alone() {
+        let place = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(full_name(&place(&["net"]), "packet"), "net.packet");
+        // `net/net.kes`, whether it was reached as the folder's own file or from inside `net/`.
+        assert_eq!(full_name(&place(&["net"]), "net"), "net");
+        assert_eq!(full_name(&place(&[]), "geom"), "geom");
+    }
 
     #[test]
     fn a_path_not_on_disk_is_keyed_lexically() {
