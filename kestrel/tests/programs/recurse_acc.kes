@@ -1,0 +1,94 @@
+// expect: 0
+// expect: 1
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 5
+// expect: 8
+// expect: 13
+// expect: 21
+// expect: 34
+// expect: 55
+// expect: 832040
+// expect: 9227465
+// expect: 1
+// expect: 479001600
+// expect: 159634688
+// expect: 32752
+// expect: 5
+// expect: 19215
+// expect: 676.5
+// expect: node 4
+// expect: node 3
+// expect: node 2
+// expect: leaf 1
+// expect: leaf 0
+// expect: leaf 1
+// expect: node 2
+// expect: leaf 1
+// expect: leaf 0
+// expect: 17
+// Recursions that fold their calls with `+ * ^ & |` (performance round, decision 6): `--release`
+// runs them as loops, and every value and every print comes out as the recursion gave them.
+pure fib(n: i64) -> i64 {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+// `x op f(a)`: one call, with the value before it.
+pure fact(n: int) -> int {
+    if n <= 1 { 1 } else { n * fact(n - 1) }
+}
+
+// `f(a) op x`: one call, with a value after it that can't fail.
+pure bits(n: int) -> int {
+    if n == 0 { 0 } else { bits(n - 1) ^ (n * 2654435) }
+}
+
+// `&` and `|` of two calls, with two parameters that change differently.
+pure all(n: int, m: int) -> int {
+    if n < 2 { m | n | 32752 } else { all(n - 1, m + 1) & all(n - 2, m * 3 + 1) }
+}
+
+pure any(n: int) -> int {
+    if n < 2 { n + 4 } else { any(n - 1) | any(n - 2) }
+}
+
+// Written with `return`s.
+pure steps(n: int) -> int {
+    if n <= 0 {
+        return 7
+    }
+    return steps(n - 1) + steps(n - 3)
+}
+
+// A float sum is not folded.
+pure ffib(n: int) -> float {
+    if n < 2 { float(n) * 0.1 } else { ffib(n - 1) + ffib(n - 2) }
+}
+
+// A recursion that prints: the prints come in the recursion's order.
+walk(n: int) -> int {
+    if n < 2 {
+        print("leaf {n}")
+        1
+    } else {
+        print("node {n}")
+        walk(n - 1) * 2 + walk(n - 2)
+    }
+}
+
+main() {
+    for n from 0 to 11 {
+        print(fib(n))
+    }
+    print(fib(30))
+    print(fib(35))
+    print(fact(0))
+    print(fact(12))
+    print(bits(500))
+    print(all(12, 1))
+    print(any(15))
+    print(steps(20))
+    print(ffib(20))
+    print(walk(4))
+}

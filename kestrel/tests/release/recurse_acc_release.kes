@@ -1,0 +1,21 @@
+// expect: -2984622845537545263
+// expect: -6867783875717455104
+// expect: 1755549696
+// Built with `--release`: the folded recursions of decision 6 wrap as the recursion did.
+pure pow3(n: int) -> i64 {
+    if n == 0 { 1 } else { 3 * pow3(n - 1) }
+}
+
+pure cubes(n: i64) -> i64 {
+    if n == 0 { 0 } else { n * n * n * 1000003 + cubes(n - 1) }
+}
+
+pure fib(n: int) -> int {
+    if n < 2 { n * 1000000000 } else { fib(n - 1) + fib(n - 2) }
+}
+
+main() {
+    print(pow3(100))
+    print(cubes(20000))
+    print(fib(30))
+}

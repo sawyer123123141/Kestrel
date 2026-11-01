@@ -96,7 +96,7 @@ fn invariant(e: &Expr, fixed: &impl Fn(LocalIdx) -> bool) -> bool {
 
 /// Whether running `e` earlier or later can't be seen: no check left, nothing but reads of places
 /// whose indexes need no check, and operators.
-fn pure(e: &Expr, arith: Arith) -> bool {
+pub(crate) fn pure(e: &Expr, arith: Arith) -> bool {
     let mut ok = true;
     walk_expr(e, &mut |n| match n {
         Node::Expr(x) => {
