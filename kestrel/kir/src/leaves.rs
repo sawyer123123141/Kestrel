@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use crate::ir::*;
-use crate::layout::StructLayout;
+use crate::layout::{EnumLayout, StructLayout};
 
 /// Plain structs with more leaves than this stay in memory.
 pub const MAX_LEAVES: usize = 16;
@@ -43,6 +43,23 @@ fn collect(structs: &[StructLayout], ty: KTy, path: &mut Vec<u32>, out: &mut Vec
         _ => return None,
     }
     Some(())
+}
+
+/// The leaves of each variant of an enum whose variants hold only plain fields, by variant: each
+/// leaf's path starts with its field's index in the variant. `None` when a field isn't plain, or
+/// when the tag and the leaves are more than `MAX_LEAVES` together.
+pub fn enum_leaves(structs: &[StructLayout], en: &EnumLayout) -> Option<Vec<Vec<Leaf>>> {
+    let mut out = Vec::with_capacity(en.variants.len());
+    let mut count = 1;
+    for v in &en.variants {
+        let mut leaves = Vec::new();
+        for (i, f) in v.fields.iter().enumerate() {
+            collect(structs, f.ty, &mut vec![i as u32], &mut leaves)?;
+        }
+        count += leaves.len();
+        out.push(leaves);
+    }
+    (count <= MAX_LEAVES).then_some(out)
 }
 
 /// Whether `ty` is a plain struct (a plain type that isn't a scalar).

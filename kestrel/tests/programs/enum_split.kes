@@ -1,0 +1,72 @@
+// Enum locals whose variants hold only plain fields live in registers: a tag and each variant's
+// fields (performance round, decision 5). Every value printed is what the enum in memory gives.
+enum Block {
+    Air
+    Dirt
+    Stone { hardness: u8 }
+    Ore { at: vec2, rich: bool }
+
+    pure weight(self) -> int {
+        match self {
+            Air { 0 }
+            Dirt { 1 }
+            Stone s { 2 + int(s.hardness) }
+            Ore o { if o.rich { 10 } else { 5 } }
+        }
+    }
+}
+
+pure block_at(y: int, ground: int) -> Block {
+    if y > ground { Block.Air }
+    else if y > ground - 3 { Block.Dirt }
+    else if y % 5 == 0 { Block.Ore(at: vec2(float(y), float(ground)), rich: y % 2 == 0) }
+    else { Block.Stone(hardness: u8(3 + y % 4)) }
+}
+
+main() {
+    // `block_at(...).weight()` over a small grid, as the heightmap's checksum does.
+    var sum = 0
+    for x from 0 to 6 {
+        let ground = 4 + x * 3 % 7
+        for y from 0 to 12 {
+            sum += block_at(y, ground).weight() * (x % 3 + 1)
+        }
+    }
+    print(sum)
+
+    // One enum given each variant in turn in a loop, read by its tag and its fields.
+    var b = Block.Air
+    var total = 0.0
+    for i from 0 to 9 {
+        match b {
+            Stone s { total += float(s.hardness) }
+            Ore o { total += o.at.x + o.at.y }
+            else { total += 0.25 }
+        }
+        b = match b {
+            Air { Block.Dirt }
+            Dirt { Block.Stone(hardness: u8(i)) }
+            Stone s { Block.Ore(at: vec2(float(i), float(s.hardness)), rich: i % 2 == 1) }
+            Ore o { if o.rich { Block.Air } else { Block.Stone(hardness: 7) } }
+        }
+        // A copy into another enum local, then the copy given a new value made from it.
+        var c = b
+        c = match c {
+            Ore o { Block.Stone(hardness: u8(o.at.x)) }
+            else { Block.Air }
+        }
+        print(i, b.weight(), c.weight(), checksum(b), to_bytes(c).len)
+    }
+    print(total)
+}
+// expect: 488
+// expect: 0 1 0 4409135176254898318 17
+// expect: 1 3 0 3106961917282610020 17
+// expect: 2 5 4 7755005602234136454 18
+// expect: 3 9 0 1292792477703584199 17
+// expect: 4 5 6 2398186213684508308 18
+// expect: 5 9 0 1292792477703584199 17
+// expect: 6 5 8 -5423485679329765011 18
+// expect: 7 9 0 1292792477703584199 17
+// expect: 8 5 10 6394592199853724626 18
+// expect: 49.5

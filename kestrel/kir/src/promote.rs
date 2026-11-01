@@ -118,7 +118,7 @@ fn region(
         .collect();
     let mut body = stmts;
     let roots = HashMap::from([(root, Split { leaves: all.clone(), locals: leaf_locals.clone() })]);
-    Rewriter { structs, locals, roots }.visit_stmts(&mut body);
+    Rewriter { structs, locals, roots, enums: HashMap::new() }.visit_stmts(&mut body);
     let at = Place::local(root);
     // The loads and write-backs can't fail, so they need no source line.
     let line = 0;

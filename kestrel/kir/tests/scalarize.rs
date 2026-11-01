@@ -133,3 +133,63 @@ fn a_struct_with_more_than_16_fields_at_the_bottom_stays_in_memory() {
     let src = "struct W {\n a: vec3\n b: vec3\n c: vec3\n d: vec3\n e: vec3\n f: vec2\n}\nmain() {\n var w = W(a: vec3(1, 1, 1), b: vec3(1, 1, 1), c: vec3(1, 1, 1), d: vec3(1, 1, 1), e: vec3(1, 1, 1), f: vec2(1, 1))\n w.f = w.f.yx\n print(w)\n}\n";
     assert_eq!(struct_slots(func(&optimized(src), "main")), vec!["w"]);
 }
+
+/// The names of `f`'s enum locals that still live in memory.
+fn enum_slots(f: &Func) -> Vec<&str> {
+    f.locals.iter().filter(|l| matches!(l.ty, KTy::Enum(_)) && l.kind == LocalKind::Addressed).map(|l| l.name.as_str()).collect()
+}
+
+fn heightmap() -> String {
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/heightmap/heightmap.kes")).unwrap()
+}
+
+#[test]
+fn the_heightmap_checksum_keeps_its_block_in_registers() {
+    let m = optimized(&heightmap());
+    for name in ["Chunk.checksum", "main"] {
+        let f = func(&m, name);
+        assert!(enum_slots(f).is_empty(), "{name}: {:#?}", f.locals);
+        assert!(f.locals.iter().any(|l| l.name.ends_with(".tag") && l.ty == KTy::U8 && l.kind == LocalKind::Value), "{name}: {:#?}", f.locals);
+    }
+}
+
+const BLOCK: &str = "enum Block {\n Air\n Dirt\n Stone { hardness: u8 }\n Ore { at: vec2, rich: bool }\n}\nmake(k: int) -> Block {\n if k > 2 {\n  return Block.Ore(at: vec2(1, 2), rich: true)\n }\n Block.Dirt\n}\nkeep(var b: Block, k: int) {\n if k > 5 {\n  return\n }\n b = Block.Air\n}\n";
+
+/// The enum locals `main` keeps in memory, for `main`'s body `body` (which has `var b` and `k`).
+fn kept(body: &str) -> Vec<String> {
+    let src = format!("{BLOCK}main() {{\n var b = Block.Stone(hardness: 3)\n let k = 2\n{body}}}\n");
+    let m = optimized(&src);
+    enum_slots(func(&m, "main")).into_iter().map(str::to_string).collect()
+}
+
+#[test]
+fn an_enum_read_by_tag_and_fields_and_given_variants_is_split() {
+    assert!(kept(" if k > 1 {\n  b = Block.Air\n }\n match b {\n  Stone s { print(s.hardness) }\n  else { print(0) }\n }\n").is_empty());
+}
+
+#[test]
+fn an_enum_given_a_value_if_or_another_split_enum_is_split() {
+    let body = " var c = if k > 1 { Block.Dirt } else { Block.Ore(at: vec2(3, 4), rich: false) }\n c = b\n match c {\n  Ore o { print(o.at.x) }\n  else { print(1) }\n }\n";
+    assert!(kept(body).is_empty());
+}
+
+#[test]
+fn an_enum_hashed_or_turned_to_bytes_reads_only_its_variant_so_it_is_split() {
+    // `checksum` and `to_bytes` read the tag, then the fields of the variant the tag names: no
+    // byte of another variant.
+    assert!(kept(" print(checksum(b))\n").is_empty());
+    assert!(kept(" print(to_bytes(b).len)\n").is_empty());
+}
+
+#[test]
+fn an_enum_printed_stored_in_a_list_passed_var_or_given_a_call_is_not_split() {
+    assert_eq!(kept(" print(b)\n"), vec!["b"]);
+    assert_eq!(kept(" var bs = list[Block]()\n bs.add(b)\n print(bs.len)\n"), vec!["b"]);
+    assert_eq!(kept(" keep(var b, k)\n match b {\n  Air { print(0) }\n  else { print(1) }\n }\n"), vec!["b"]);
+    assert_eq!(kept(" b = make(k)\n match b {\n  Air { print(0) }\n  else { print(1) }\n }\n"), vec!["b"]);
+}
+
+#[test]
+fn a_copy_into_an_enum_kept_in_memory_keeps_both() {
+    assert_eq!(kept(" var c = Block.Dirt\n c = b\n print(c)\n"), vec!["b", "c"]);
+}
