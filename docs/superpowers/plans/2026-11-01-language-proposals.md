@@ -99,7 +99,20 @@ hash = "<sha-256 of the package's files>"
 
 **Cost.** A new crate `kestrel-pkg` (reading and writing the toml and the lock, the version rule, running `git`, hashing), `driver/src/load.rs` (search roots per package, full names with the package prefix), `cli` (`add`, `update`, fetching in `run` and `build`, the replay header), tests with a local bare git repository as the remote. About 6-8 days. Whether `rollback` then leaves the compiler for a package is a later ruling.
 
-**Decide:** `kestrel.toml` + `kestrel.lock`, git URL with a tag or a path, a per-user cache, `use pkg.module`, one copy per package? (yes = the pick)
+**Ruling (the user, 2026-11-01): imports, not a manifest.** The user prefers the source to be declared in the program ("I like imports more"). So the pick becomes a hybrid of A and B, Deno's shape: a `use` names the source once, the lock pins it, and every other file uses the short name.
+
+```
+use netcode from "https://github.com/someone/netcode" v0.3.0   // declares the package, once
+use shared from "../shared"                                      // a path package
+use { Session from netcode.session }                             // any file, after the declaration
+```
+
+- A source is declared in one file of the program (the entry file is the natural place, but any file may declare it); a second declaration of the same name with a different source or version is an error naming both files ("`netcode` is declared as v0.3.0 in main.kes and v0.4.0 in net/wire.kes; keep one"). A file that only uses the short name needs no source.
+- `kestrel.lock` is still written beside the entry file (commit and hash per package) by the first `kestrel run` or `build` that fetches, and `kestrel update` moves it; the exe and the replay header record each package's commit as before. No `kestrel.toml`.
+- Versions, the one-copy rule, the per-user cache, the package's own files and dependencies, and the error for a name found in two places are as in pick A. A package declares its own dependencies the same way, in its own files.
+- Cost is the same as A less the toml reader: a `kestrel-pkg` crate, `load.rs`, the CLI's `update` and fetching, the replay header.
+
+**Decide:** done; the shape above is the ruling. Open: the keyword (`from` as in `use { X from m }` today, or `at`), and whether a version is required on a git source (the pick: required; a path source has none).
 
 ## 3. `exit(code)` and `fail("sentence")`
 
