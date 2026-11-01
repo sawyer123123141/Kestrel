@@ -31,6 +31,8 @@ type Build = fn(&Job, Instant, Option<SystemTime>) -> Outcome;
 pub struct Built {
     pub program: JitProgram,
     pub compiled: Compiled,
+    /// The compile's warnings, as `kestrel run` prints them (empty when there are none).
+    pub warnings: String,
     /// When the compile started.
     pub started: Instant,
     /// When the file was saved, as its modification time says.
@@ -85,10 +87,10 @@ fn guarded(build: Build, job: &Job, started: Instant, saved: Option<SystemTime>)
 
 /// Compiles `job` for the reloading host (a reloadable program comes without its generated `main`).
 fn build(job: &Job, started: Instant, saved: Option<SystemTime>) -> Outcome {
-    let compiled = compile_for_reload(&job.path, job.style, job.release)?;
+    let (compiled, warnings) = compile_for_reload(&job.path, job.style, job.release)?;
     let natives = crate::natives();
     match JitProgram::compile_with(&compiled.module, job.opts, &natives) {
-        Ok(program) => Ok(Built { program, compiled, started, saved }),
+        Ok(program) => Ok(Built { program, compiled, warnings, started, saved }),
         Err(e) => Err(CompileFailure { text: format!("kestrel: internal compiler error: {e}\n"), files: compiled.files }),
     }
 }

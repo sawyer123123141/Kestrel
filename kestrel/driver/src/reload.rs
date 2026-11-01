@@ -19,8 +19,10 @@ pub struct CompileFailure {
 
 /// Reads the program whose entry file is `path`, compiles it as `host::compile_as_host` does (a
 /// reloadable program's module comes without the generated `main`) and proves its contracts for a
-/// checked build, or a `--release` one with `release`. On failure the error has the text `kestrel
-/// run` would print (the diagnostics, or that the file can't be read) and the files it read.
+/// checked build, or a `--release` one with `release`. On success it gives the program and the
+/// warnings `kestrel run` would print for it (empty when there are none), for the host to print
+/// before `reloaded`. On failure the error has the text `kestrel run` would print (the
+/// diagnostics, or that the file can't be read) and the files it read.
 ///
 /// Each file's time, in `Compiled::files` or in the failure, is read just before the file itself
 /// is, so a save that lands while this runs makes `SourceFile::changed` true afterwards and is
@@ -29,7 +31,7 @@ pub struct CompileFailure {
 /// Nothing here is kept per thread, so any thread may call it. Like `kestrel run`'s own thread,
 /// the caller pins the float mode first (`kestrel_runtime::fpu::pin`), since Cranelift's constant
 /// folding and the compiler's casts follow it, and gives itself a large stack for deep programs.
-pub fn compile_for_reload(path: &Path, style: DiagStyle, release: bool) -> Result<Compiled, CompileFailure> {
+pub fn compile_for_reload(path: &Path, style: DiagStyle, release: bool) -> Result<(Compiled, String), CompileFailure> {
     let reads = Reads::default();
     reads.note(path);
     let src = match std::fs::read_to_string(path) {
@@ -50,7 +52,7 @@ pub fn compile_for_reload(path: &Path, style: DiagStyle, release: bool) -> Resul
     if !proved.ok {
         return Err(CompileFailure { text: text + &proved.text, files: compiled.files });
     }
-    Ok(compiled)
+    Ok((compiled, text + &proved.text))
 }
 
 /// The files a compile read, in the order it read them, each with the time taken just before.

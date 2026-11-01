@@ -32,7 +32,8 @@ fn the_files_carry_the_times_read_before_the_compile() {
     );
     let (game, geom) = (dir.join("game.kes"), dir.join("geom.kes"));
     let before = (time(&game), time(&geom));
-    let c = compile_for_reload(&game, DiagStyle::Full, false).unwrap();
+    let (c, warnings) = compile_for_reload(&game, DiagStyle::Full, false).unwrap();
+    assert_eq!(warnings, "", "a clean program has no warnings to print");
     assert_eq!(c.files[0].path, game, "the entry file comes first");
     assert_eq!(c.files[0].modified, before.0);
     let g = c.files.iter().find(|f| f.path == geom).expect("the used module is listed");
@@ -61,7 +62,7 @@ pub frame(var s: Game) -> bool {
 }
 ";
     let dir = folder("host", &[("game.kes", src)]);
-    let c = compile_for_reload(&dir.join("game.kes"), DiagStyle::Full, false).unwrap();
+    let (c, _) = compile_for_reload(&dir.join("game.kes"), DiagStyle::Full, false).unwrap();
     assert!(c.module.reload.is_some());
     assert!(c.module.main.is_none());
     assert!(!c.module.funcs.iter().any(|f| f.name == "main"));

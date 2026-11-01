@@ -112,12 +112,14 @@ impl Live {
     }
 }
 
-/// Takes in what a compile gave, between two frames: swaps the new program in, or prints the
-/// compile's errors and keeps the one that runs. `name` is the program file's name. Every message
-/// goes to `out` (stderr).
+/// Takes in what a compile gave, between two frames: prints its warnings and swaps the new program
+/// in, or prints the compile's errors and keeps the one that runs. `name` is the program file's
+/// name. Every message goes to `out` (stderr).
 pub fn apply(live: &mut Live, result: Outcome, buffer: &mut StateBuffer, watcher: &mut Watcher, name: &str, out: &mut dyn Write) {
     match result {
         Ok(built) => {
+            // As the first compile prints them, before anything else is said about this one.
+            let _ = write!(out, "{}", built.warnings);
             watcher.adopt(built.compiled.files.clone());
             swap(live, built, buffer, name, out);
         }
@@ -136,7 +138,7 @@ pub fn apply(live: &mut Live, result: Outcome, buffer: &mut StateBuffer, watcher
 /// Swaps `built` in for `live`: the same state shape keeps the state in `buffer`; another drops it
 /// and runs the new `setup` into a new buffer.
 pub fn swap(live: &mut Live, built: Built, buffer: &mut StateBuffer, name: &str, out: &mut dyn Write) {
-    let Built { program, compiled, started, saved } = built;
+    let Built { program, compiled, started, saved, .. } = built;
     let Some(info) = compiled.module.reload.clone() else {
         let _ = writeln!(
             out,
@@ -171,5 +173,57 @@ pub fn swap(live: &mut Live, built: Built, buffer: &mut StateBuffer, name: &str,
         let _ = writeln!(out, "state reset: {} changed shape; setup() ran again", live.state);
     } else if setup_changed {
         let _ = writeln!(out, "setup() changed but the state was kept; restart to apply it");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::time::Instant;
+
+    use kestrel_codegen::{JitProgram, Options};
+    use kestrel_driver::{compile_for_reload, DiagStyle};
+
+    use super::super::compile::Built;
+    use super::super::watch::Watcher;
+    use super::{apply, Live, StateBuffer};
+
+    const PROGRAM: &str = "struct Game {\n    n: int\n}\npub setup() -> Game { Game(n: 0) }\npub frame(var s: Game) -> bool {\n    s.n += 1\n    s.n < 3\n}\n";
+
+    /// Compiles the program at `path` as the compile thread does, with `warnings` in place of the
+    /// compile's own.
+    fn built(path: &Path, warnings: &str) -> Built {
+        let (compiled, none) = compile_for_reload(path, DiagStyle::Short, false).unwrap();
+        assert_eq!(none, "", "the program compiles clean");
+        let program = JitProgram::compile_with(&compiled.module, Options::default(), &crate::natives()).unwrap();
+        Built { program, compiled, warnings: warnings.to_string(), started: Instant::now(), saved: None }
+    }
+
+    #[test]
+    fn a_reload_prints_its_warnings_before_reloaded() {
+        // Only `kestrel check` warns today (an `@assume` that removes no check), so no program
+        // `kestrel run` compiles has a warning: this one stands in for the compile's own.
+        let warning = "1:1: warning: a stand-in warning\n";
+        let dir = std::env::temp_dir().join(format!("kestrel-swap-warnings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prog.kes");
+        std::fs::write(&path, PROGRAM).unwrap();
+        let first = built(&path, "");
+        let mut live = Live::new(first.program, first.compiled.module.reload.clone().unwrap()).unwrap();
+        live.init();
+        let mut buffer = StateBuffer::new(&live.info);
+        live.setup(&mut buffer);
+        assert!(live.frame(&mut buffer));
+        let mut watcher = Watcher::new(first.compiled.files.clone());
+        let mut out = Vec::new();
+        apply(&mut live, Ok(built(&path, warning)), &mut buffer, &mut watcher, "prog.kes", &mut out);
+        let out = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(lines.len() == 2 && lines[0] == warning.trim_end() && lines[1].starts_with("reloaded prog.kes in "), "{out}");
+        // The state was kept: the second frame of three still runs, the third ends it.
+        assert!(live.frame(&mut buffer));
+        assert!(!live.frame(&mut buffer));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

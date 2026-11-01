@@ -1,6 +1,7 @@
 //! Helpers shared by the CLI test binaries.
 #![allow(dead_code)]
 
+pub mod counter;
 pub mod directives;
 pub mod session;
 pub mod smoke;
