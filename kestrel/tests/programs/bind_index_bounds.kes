@@ -1,0 +1,31 @@
+// An out-of-range `ps[i]` in a run bound once fails on the same line, with the same index and
+// after the same output, as it does with every access indexed.
+struct P {
+    x: float
+    y: float
+}
+
+loud(i: int) -> float {
+    if i < 0 {
+        return 0.0
+    }
+    print("loud {i}")
+    1.0
+}
+
+main() {
+    var ps = [P(x: 1, y: 2), P(x: 3, y: 4)]
+    for i from 0 to 3 {
+        print("step {i}")
+        ps[i].x += 1
+        ps[i].y = ps[i].x * 2 + loud(i)
+    }
+    print(ps)
+}
+// expect: step 0
+// expect: loud 0
+// expect: step 1
+// expect: loud 1
+// expect: step 2
+// expect-exit: 101
+// expect-stderr: index 2 out of bounds for length 2 on line 20

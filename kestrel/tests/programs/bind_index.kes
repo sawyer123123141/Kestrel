@@ -1,0 +1,75 @@
+// `parts[i].step(...)` binds `parts[i]` once for the inlined body and keeps its fields in
+// registers (performance round, decision 4); every value printed is what indexing each access
+// gives.
+struct Particle {
+    pos: vec2
+    vel: vec2
+
+    step(var self, dt: float, target: vec2) {
+        self.vel += (target - self.pos).normalized() * 900.0 * dt
+        self.vel *= 0.98
+        self.pos += self.vel * dt
+        if self.pos.x < 0 {
+            self.pos.x = 0
+            self.vel.x = abs(self.vel.x) * 0.7
+        } else if self.pos.x > 100 {
+            self.pos.x = 100
+            self.vel.x = -abs(self.vel.x) * 0.7
+        }
+    }
+}
+
+struct P {
+    x: float
+    y: float
+}
+
+main() {
+    var parts = [Particle(pos: vec2(1, 2), vel: vec2(-300, 5)), Particle(pos: vec2(90, 10), vel: vec2(400, -3)), Particle(pos: vec2(50, 50), vel: vec2(0, 0))]
+    for k from 0 to 20 {
+        for i from 0 to parts.len {
+            parts[i].step(1.0 / 60.0, vec2(40, 30))
+        }
+    }
+    print(parts)
+
+    // A run of plain statements on one element, then the list read after it.
+    var ps = [P(x: 1, y: 2), P(x: 3, y: 4), P(x: -5, y: 0.5)]
+    var total = 0.0
+    for i from 0 to ps.len {
+        ps[i].x += 1
+        ps[i].y = ps[i].x * 2 + ps[i].y
+        total += ps[i].y
+        total += ps.len
+    }
+    print(ps, total)
+
+    // The index changes between two uses, and another element is read beside it.
+    var j = 0
+    ps[j].x = 10
+    j = 2
+    ps[j].y = ps[j].x + ps[0].x
+    print(ps)
+
+    // A whole element read and written.
+    for i from 0 to ps.len - 1 {
+        let old = ps[i]
+        ps[i] = ps[i + 1]
+        ps[i + 1] = old
+        ps[i].x += 0.25
+    }
+    print(ps)
+
+    // A list of numbers: the element itself is bound.
+    var fs = [1.5, 2.5, -0.75]
+    for i from 0 to fs.len {
+        fs[i] = fs[i] * 2.0
+        fs[i] += 0.25
+    }
+    print(fs)
+}
+// expect: [Particle(pos: vec2(x: 66.652275, y: 35.266193), vel: vec2(x: 120.061775, y: 150.11963)), Particle(pos: vec2(x: 12.635648, y: 30.67552), vel: vec2(x: -228.24203, y: 120.27727)), Particle(pos: vec2(x: 34.111423, y: 18.222874), vel: vec2(x: -34.21032, y: -68.420494))]
+// expect: [P(x: 2, y: 6), P(x: 4, y: 12), P(x: -4, y: -7.5)] 19.5
+// expect: [P(x: 10, y: 6), P(x: 4, y: 12), P(x: -4, y: 6)]
+// expect: [P(x: 4.25, y: 12), P(x: -3.75, y: 6), P(x: 10, y: 6)]
+// expect: [3.25, 5.25, -1.25]

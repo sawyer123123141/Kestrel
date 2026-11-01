@@ -1,7 +1,8 @@
 //! Keeps the fields of an exclusive place in registers for a region of code, so a field written
 //! there isn't read back from memory. The places are pointer parameters of plain type (`var self`,
 //! a `var` number, a read-only struct), for the whole body, and loop elements of plain type
-//! (`for p in ps`, a `par for` item), from their `Bind` to the end of the loop body. Each field the
+//! (`for p in ps`, a `par for` item, an element `bind_index` bound), from their `Bind` to the end
+//! of the statement list holding it. Each field the
 //! region uses is loaded once at its start, and each field it stores is written back at every
 //! way out: the end, `return`, and a `break` or `continue` of the element's loop.
 //!
@@ -10,14 +11,15 @@
 //! global variables that change. A region that reaches the place another way (passing it on as
 //! `var`, a `par for`, or for a loop element its collection or another element of it) is left
 //! alone, and so is a loop element's region that returns after freeing memory (see
-//! `returns_after_freeing`). A runtime panic loses the fields not yet written back, which
+//! `returns_after_freeing`), and so is a loop element's region that only copies whole structs out
+//! of it (see `copies_only`). A runtime panic loses the fields not yet written back, which
 //! nothing can observe.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::ir::*;
 use crate::layout::StructLayout;
-use crate::leaves::{field_path, leaf_name, leaf_place, leaves, load, under, Leaf};
+use crate::leaves::{field_path, is_plain_struct, leaf_name, leaf_place, leaves, load, under, Leaf};
 use crate::split::{Rewriter, Split};
 use crate::visit::{places, walk, walk_expr, Node};
 use crate::visit_mut::{walk_stmt, VisitMut};
@@ -100,7 +102,7 @@ fn region(
 ) -> Vec<Stmt> {
     let (name, ty) = (locals[root.0 as usize].name.clone(), locals[root.0 as usize].ty);
     let Some(all) = leaves(structs, ty) else { return stmts };
-    if !exclusive(&stmts, root, homes) || (in_loop && returns_after_freeing(&stmts)) {
+    if !exclusive(&stmts, root, homes) || (in_loop && (returns_after_freeing(&stmts) || copies_only(structs, &stmts, root))) {
         return stmts;
     }
     let (used, dirty) = usage(&stmts, root, &all);
@@ -184,6 +186,19 @@ fn returns_after_freeing(stmts: &[Stmt]) -> bool {
         _ => {}
     });
     returns && frees
+}
+
+/// Whether every use of the loop element `root` in `stmts` reads a whole plain struct inside it to
+/// store it somewhere else (`positions[i] = p.pos`). Left in memory, each is one copy of the struct;
+/// promoted, it would be a load and a store of each field.
+fn copies_only(structs: &[StructLayout], stmts: &[Stmt], root: LocalIdx) -> bool {
+    let (mut copies, mut all) = (0, 0);
+    walk(stmts, &mut |n| match n {
+        Node::Stmt(Stmt::Assign(to, Expr { kind: ExprKind::Load(p), ty, .. })) if p.root == root && to.root != root && is_plain_struct(structs, *ty) => copies += 1,
+        Node::Place(p, _) if p.root == root => all += 1,
+        _ => {}
+    });
+    copies > 0 && copies == all
 }
 
 /// The leaves `stmts` read or write, and the ones they write, by index into the root's leaves.

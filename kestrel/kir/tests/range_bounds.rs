@@ -103,7 +103,8 @@ fn the_draw_copy_is_proven() {
 
 #[test]
 fn a_later_statement_reuses_a_passed_check() {
-    let src = "struct P {\n x: int\n y: int\n}\nf(var parts: list[P], i: int) {\n parts[i].x = 1\n parts[i].y = 2\n}";
+    // (`i * 2` can overflow before `parts[i]` is reached, so `bind_index` leaves both places indexed.)
+    let src = "struct P {\n x: int\n y: int\n}\nf(var parts: list[P], i: int) {\n parts[i].x = i * 2\n parts[i].y = 2\n}";
     assert_eq!(bounds(src), (vec![6], 1));
 }
 
