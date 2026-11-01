@@ -1,0 +1,136 @@
+// The rollback library's `advance`, timed for the rollback round's measurements
+// (`bench/determinism/results.md`, "The rollback library"). Run with
+//
+//   kestrel run --release bench/rollback/advance.kes [long]
+//
+// Two games: Pong's `Game` (`game.kes`, a copy of the demo's) and the crowd (`crowd.kes`, 1,000
+// bodies in two lists). For each, player 1's session runs 2,000 frames (`long`: 20,000), five
+// times, on each of `drive.kes`'s wires: the perfect one (no rollback) and the late one (an
+// 8-frame rollback every frame). A frame is the session's three calls: `remote` with the
+// arriving packet (made before the timer starts), `local` and `advance`. The game's own `step`,
+// run alone on the same inputs, is timed too, as the floor. Each run is in an `arena { }` of its
+// own and starts from a new session. It prints the median ns per frame with the range, the
+// rollbacks made and the deepest, and the late wire's cost over the perfect one's.
+use time
+use args
+use rollback
+use { Packet, Rollback, new_session from rollback }
+use { Game, new_game from game }
+use { Crowd, new_crowd from crowd }
+use { frame, packets, mine, theirs, LATE from drive }
+
+let FRAMES = 2000
+let LONG = 10
+let RUNS = 5
+
+// What one timed run gives.
+struct Run {
+    seconds: f64
+    rollbacks: int
+    deepest: int
+    // The newest confirmed frame, and the checksum of the state at its start.
+    confirmed: int
+    sum: i64
+}
+
+// One session of `start` for `frames` frames on the wire whose packets are `ps`.
+run[G: Rollback](start: G, ps: list[Packet], frames: int) -> Run {
+    var s = new_session(start, me: 1, delay: 0)
+    let t0 = time.now()
+    for t from 0 to frames {
+        frame(var s, ps[t], t)
+    }
+    let seconds = time.now() - t0
+    let c = s.confirmed()
+    let sum = if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+    Run(seconds: seconds, rollbacks: s.rollbacks, deepest: s.deepest, confirmed: c, sum: sum)
+}
+
+// The game's `step` alone, for `frames` frames, on the inputs the session sees once corrected,
+// with the checksum of the state at the start of frame `at` (`frames` for the end).
+bare[G: Rollback](start: G, frames: int, at: int) -> Run {
+    var g = start
+    var sum: i64 = 0
+    let t0 = time.now()
+    for t from 0 to frames {
+        if t == at {
+            sum = checksum(g)
+        }
+        g.step(mine(t), theirs(t))
+    }
+    let seconds = time.now() - t0
+    if at == frames {
+        sum = checksum(g)
+    }
+    Run(seconds: seconds, rollbacks: 0, deepest: 0, confirmed: at, sum: sum)
+}
+
+// `x` with one decimal.
+pure one(x: f64) -> string {
+    let tenths = int(x * 10 + 0.5)
+    "{tenths / 10}.{tenths % 10}"
+}
+
+// `x` with two decimals.
+pure two(x: f64) -> string {
+    let hundredths = int(x * 100 + 0.5)
+    let rest = hundredths % 100
+    if rest < 10 { "{hundredths / 100}.0{rest}" } else { "{hundredths / 100}.{rest}" }
+}
+
+// The median of five ns-per-frame numbers and their range, as text.
+pure spread(var ns: list[f64]) -> string {
+    ns.sort()
+    "{one(ns[ns.len / 2])} ({one(ns[0])}-{one(ns[ns.len - 1])})"
+}
+
+pure median(var ns: list[f64]) -> f64 {
+    ns.sort()
+    ns[ns.len / 2]
+}
+
+// Times `start` on both wires and alone, and prints the three lines.
+measure[G: Rollback](name: string, start: G, frames: int) {
+    var alone: list[f64] = []
+    var perfect: list[f64] = []
+    var late: list[f64] = []
+    var last_perfect = Run(seconds: 0, rollbacks: 0, deepest: 0, confirmed: 0, sum: 0)
+    var last_late = last_perfect
+    var last_bare = last_perfect
+    let on_time = packets(frames, false)
+    let held = packets(frames, true)
+    for r from 0 to RUNS {
+        arena {
+            let b = bare(start, frames, frames - LATE)
+            alone.add(b.seconds * 1000000000.0 / f64(frames))
+            last_bare = b
+        }
+        arena {
+            let p = run(start, on_time, frames)
+            perfect.add(p.seconds * 1000000000.0 / f64(frames))
+            last_perfect = p
+        }
+        arena {
+            let l = run(start, held, frames)
+            late.add(l.seconds * 1000000000.0 / f64(frames))
+            last_late = l
+        }
+    }
+    print("{name} step alone: {spread(var alone)} ns a frame")
+    print("{name} perfect wire: {spread(var perfect)} ns a frame, rollbacks {last_perfect.rollbacks} deepest {last_perfect.deepest}")
+    print("{name} {LATE}-frame rollback every frame: {spread(var late)} ns a frame, rollbacks {last_late.rollbacks} deepest {last_late.deepest}")
+    print("{name} rollback / perfect: {two(median(var late) / median(var perfect))}, perfect / step alone: {two(median(var perfect) / median(var alone))}")
+    // The step alone's checksum is taken at the late wire's newest confirmed frame.
+    let agree = last_late.confirmed == frames - LATE and last_late.sum == last_bare.sum
+    print("{name} confirmed {last_perfect.confirmed} and {last_late.confirmed}; the late wire's confirmed state is the step alone's: {agree}")
+}
+
+main() {
+    var frames = FRAMES
+    for a in args.all() {
+        if a == "long" { frames = FRAMES * LONG }
+    }
+    print("frames {frames}, runs {RUNS}")
+    measure("pong", new_game(7), frames)
+    measure("crowd", new_crowd(1), frames)
+}

@@ -1,0 +1,174 @@
+// A copy of Pong's game (`demos/pong/game.kes` at 39ab7f9) for the rollback benches: a bench can't
+// `use` a file above its own folder.
+//
+// The game itself: a ball, two paddles and the score, and the step that moves them one frame.
+//
+// `step` is the whole simulation, like a Godot `_physics_process` that reads nothing but its
+// arguments: the same `Game` and the same two `Input`s always give the same next `Game`, bit for
+// bit, on every machine and in every build. `Game` implements the `rollback` library's `Rollback`
+// interface with it, so a `Session[Game]` can run, snapshot and roll back the game. That is what lets two peers run the game apart and agree,
+// and lets a peer go back to an old snapshot and run the frames again (a rollback).
+// `@prove(deterministic)` makes the compiler check it: no clock, no keyboard, no shared random
+// numbers. Every random number comes from the `Rng` that lives in the game state, so it is
+// copied with each snapshot.
+use { Rng from random }
+use { Input, Rollback from rollback }
+
+// The field, in pixels: origin top-left, y down.
+pub let WIDTH = 800.0
+pub let HEIGHT = 500.0
+
+// The fixed time step: 60 steps a second, whatever the display does.
+pub let DT = 1.0 / 60
+
+// Paddles: the distance of each paddle's middle from its side, its size and its speed.
+pub let PAD_X = 30.0
+pub let PAD_W = 12.0
+pub let PAD_H = 80.0
+pub let PAD_SPEED = 360.0
+
+// The ball: its radius, its speed when served, how much faster each hit makes it, and the
+// fastest it goes.
+pub let BALL_R = 8.0
+let SERVE_SPEED = 360.0
+let SPEEDUP = 1.1
+let MAX_SPEED = 900.0
+
+// The widest serve and the widest bounce off a paddle's edge, in radians from straight across.
+let SERVE_ANGLE = 0.6
+let BOUNCE_ANGLE = 0.9
+
+// The buttons of a player's `Input`: up and down (W and S for a person).
+pub let UP = 1
+pub let DOWN = 2
+
+// Which of up and down a player holds in one frame.
+pub struct Pad {
+    up: bool
+    down: bool
+}
+
+// Everything the game keeps. Numbers, vectors and an `Rng` only, so a snapshot is a plain copy
+// that never allocates.
+pub struct Game: Rollback {
+    ball: vec2
+    vel: vec2
+    // The middle of each paddle, along y.
+    pad1: float
+    pad2: float
+    score1: int
+    score2: int
+    rng: Rng
+
+    // One frame of the game, given player 1's input and player 2's. A bounce mirrors the ball's
+    // position instead of snapping it to the paddle or the wall, so the ball loses no distance and
+    // a small difference stays a difference.
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.pad1 = move_pad(self.pad1, held(one))
+        self.pad2 = move_pad(self.pad2, held(two))
+        self.ball += self.vel * DT
+
+        // The top and bottom walls.
+        if self.ball.y < BALL_R {
+            self.ball.y = 2 * BALL_R - self.ball.y
+            self.vel.y = abs(self.vel.y)
+        } else if self.ball.y > HEIGHT - BALL_R {
+            self.ball.y = 2 * (HEIGHT - BALL_R) - self.ball.y
+            self.vel.y = -abs(self.vel.y)
+        }
+
+        // The paddles. The left paddle's face is where the ball's edge touches it.
+        let left = PAD_X + PAD_W / 2 + BALL_R
+        let right = WIDTH - left
+        if hits(self.ball, self.vel, self.pad1, left, -1) {
+            self.ball.x = 2 * left - self.ball.x
+            self.vel = bounce(self.ball, self.vel, self.pad1, 1)
+        } else if hits(self.ball, self.vel, self.pad2, right, 1) {
+            self.ball.x = 2 * right - self.ball.x
+            self.vel = bounce(self.ball, self.vel, self.pad2, -1)
+        }
+
+        // A ball out on one side is a point for the other player, and is served to the side that
+        // lost it.
+        if self.ball.x < -BALL_R {
+            self.score2 += 1
+            serve(var self, -1)
+        } else if self.ball.x > WIDTH + BALL_R {
+            self.score1 += 1
+            serve(var self, 1)
+        }
+    }
+}
+
+// Which of up and down an input holds.
+pure held(i: Input) -> Pad {
+    Pad(up: (i.buttons & UP) != 0, down: (i.buttons & DOWN) != 0)
+}
+
+// A new game: paddles in the middle and the ball served toward player 2.
+pub pure new_game(seed: int) -> Game {
+    var g = Game(ball: vec2(0, 0), vel: vec2(0, 0), pad1: HEIGHT / 2, pad2: HEIGHT / 2, score1: 0, score2: 0,
+        rng: Rng(seed: seed))
+    serve(var g, 1)
+    g
+}
+
+// Puts the ball in the middle and sends it toward `side` (-1 left, 1 right) at a random angle.
+pure serve(var g: Game, side: int) {
+    let angle = g.rng.randf_range(-SERVE_ANGLE, SERVE_ANGLE)
+    g.ball = vec2(WIDTH / 2, HEIGHT / 2)
+    g.vel = vec2(cos(angle) * side, sin(angle)) * SERVE_SPEED
+}
+
+// A paddle's middle after one frame of `p`, kept inside the field.
+pure move_pad(y: float, p: Pad) -> float {
+    var dir = 0.0
+    if p.up {
+        dir -= 1
+    }
+    if p.down {
+        dir += 1
+    }
+    clamp(y + dir * PAD_SPEED * DT, PAD_H / 2, HEIGHT - PAD_H / 2)
+}
+
+// The ball's new velocity after a hit on the paddle whose middle is at `pad`, going toward `side`:
+// a hit near the edge sends it off at a steeper angle, and every hit is a little faster.
+pure bounce(ball: vec2, vel: vec2, pad: float, side: int) -> vec2 {
+    let offset = clamp((ball.y - pad) / (PAD_H / 2 + BALL_R), -1.0, 1.0)
+    let angle = offset * BOUNCE_ANGLE
+    let speed = min(vel.length() * SPEEDUP, MAX_SPEED)
+    vec2(cos(angle) * side, sin(angle)) * speed
+}
+
+// True when the ball, moving toward the paddle at `pad` whose face is at x = `face`, has reached
+// it this frame. `dir` is -1 for the left paddle and 1 for the right one.
+pure hits(ball: vec2, vel: vec2, pad: float, face: float, dir: int) -> bool {
+    let toward = vel.x * dir > 0
+    let reached = (ball.x - face) * dir >= 0 and (ball.x - face) * dir < PAD_W + BALL_R
+    toward and reached and abs(ball.y - pad) < PAD_H / 2 + BALL_R
+}
+
+// A computer player for `side` (1 left, 2 right). It reads only the `Game` it is given (its own
+// peer's), so it is part of the scripted run. It follows the ball once the ball comes toward it
+// and is within 40% of the field of it, aiming near its paddle's edge so its returns go off at a
+// steep angle, and goes back to the middle otherwise. A long rally makes the ball faster than a
+// paddle can follow, so a bot misses about every 10 seconds.
+pub pure bot(g: Game, side: int) -> Input {
+    let y = if side == 1 { g.pad1 } else { g.pad2 }
+    let coming = if side == 1 { g.vel.x < 0 and g.ball.x < WIDTH * 0.4 } else { g.vel.x > 0 and g.ball.x > WIDTH * 0.6 }
+    var target = HEIGHT / 2
+    if coming {
+        let aim = if side == 1 { 36.0 } else { -32.0 }
+        target = g.ball.y + aim
+    }
+    let gap = target - y
+    if gap < -6 {
+        Input(buttons: UP)
+    } else if gap > 6 {
+        Input(buttons: DOWN)
+    } else {
+        Input()
+    }
+}

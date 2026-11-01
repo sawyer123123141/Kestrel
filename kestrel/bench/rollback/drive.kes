@@ -1,0 +1,55 @@
+// What the rollback benches feed a session: player 1's inputs (this session's own) and player 2's
+// packets, on one of two wires.
+//
+// - The perfect wire: player 2's input for frame t arrives at tick t, before `advance`, so no
+//   frame is ever run on a guess.
+// - The late wire: player 2's packets arrive LATE frames late, and its input flips between up and
+//   down every frame. A frame not known yet is run again on each rollback, on the newest input
+//   known, so its last guess is the input of the frame before it, which is always the other
+//   button: from tick LATE on, every `advance` rolls back LATE frames and runs them again before
+//   the present one.
+use { Input, Packet, Rollback, Session, SENT from rollback }
+
+pub let LATE = 8
+
+// Player 1's input for frame `f`: none, up, then down, five frames each.
+pub pure mine(f: int) -> Input {
+    Input(buttons: (f / 5) % 3)
+}
+
+// Player 2's input for frame `f`: up, then down, then up, a frame each.
+pub pure theirs(f: int) -> Input {
+    Input(buttons: f % 2 + 1)
+}
+
+// The packet player 2 sends after frame `newest`: its last SENT inputs.
+pub pure packet(newest: int) -> Packet {
+    var inputs = array[Input](SENT)
+    for j from 0 to SENT {
+        let f = newest - SENT + 1 + j
+        if f >= 0 {
+            inputs[j] = theirs(f)
+        }
+    }
+    Packet(sender: 2, frame: newest, inputs: inputs, sum_frame: 0, sum: 0)
+}
+
+// The packets that arrive at each of `ticks` ticks (-1 frames for none), made before timing so the
+// timed loop holds only the session's calls.
+pub pure packets(ticks: int, late: bool) -> list[Packet] {
+    var ps: list[Packet] = []
+    for t from 0 to ticks {
+        ps.add(packet(if late { t - LATE } else { t }))
+    }
+    ps
+}
+
+// One frame of player 1's session at tick `t`: the packet that arrives, this player's input, and
+// `advance`.
+pub pure frame[G: Rollback](var s: Session[G], p: Packet, t: int) {
+    if p.frame >= 0 {
+        s.remote(p)
+    }
+    s.local(mine(t))
+    s.advance()
+}

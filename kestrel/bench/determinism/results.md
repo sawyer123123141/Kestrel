@@ -1,3 +1,157 @@
+# The rollback library (2026-11-01)
+
+Measured 2026-11-01 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11), the PC
+free: no build, no Godot and no Roblox running (checked with `Get-Process` before and after). The
+compiler is `kestrel` at 39ab7f9 built `--release` (`target/release/kestrel.exe`), every program
+run with `kestrel run --release` (the JIT), at normal priority, one measurement at a time.
+**Load** is the whole machine's CPU use (`\Processor(_Total)\% Processor Time`, 2 s): 6.5%
+before the first block and 14.8% after the last, the Claude app, OneDrive and Defender. Spec:
+`docs/superpowers/specs/2026-10-31-rollback-library-design.md` ("Measurements").
+
+**Short version:** a session frame (`remote`, `local`, `advance`) costs Pong **38 ns** on a
+perfect wire, against 9.7 ns for its `step` alone, and **132 ns with an 8-frame rollback every
+frame** (3.5 times: nine steps and nine snapshots, but the fixed costs are most of a frame with a
+step this small). The crowd (1,000 bodies) costs **2.2 µs** a frame (`step` 1.3-1.4 µs, the rest
+mostly the 16 KB snapshot) and **18.1 µs** with the rollback every frame (8.2 times). **Pong's
+whole network frame is 6-9% slower than with `peer.kes`** (2.30 against 2.12 µs at 600,000
+frames; 7.5% slower with recording off on both), **so the 5% bound is missed**: about a third
+of it is the arena the outgoing packets are made in each frame, most of the rest the wider
+`Input`, and the replay keeps 24 bytes a frame against 4. Both Pongs print the same lines at
+every length. The sessions' memory **stays flat**: the program arena is the same after 2 and
+200 ring laps (64 KB for Pong, 576 KB for the crowd), with every frame rolling back.
+
+## How it was measured
+
+- **`bench/rollback/`** holds the programs:
+  - `crowd.kes`: the heavier `Rollback` game. 1,000 bodies whose positions and velocities are
+    two `list[vec2]`, and an `Rng`. `step` moves every body by its velocity scaled by both
+    players' buttons, wraps it around a 1,000-unit field, and gives one random body a new
+    velocity. It is `@prove(deterministic)`; it can't be `no_alloc` through the library, since
+    its state holds lists.
+  - `game.kes`: a copy of Pong's `demos/pong/game.kes` at 39ab7f9 (a bench can't `use` a file
+    above its folder).
+  - `drive.kes`: player 1's inputs and player 2's packets on two wires. On the **perfect wire**
+    player 2's input for frame t arrives at tick t, before `advance`, so no frame runs on a
+    guess. On the **late wire** player 2's packets arrive 8 frames late and its input flips
+    between up and down every frame. A frame not yet known is run again on each rollback, on the
+    newest input known (the frame before it), so its last guess is always wrong: from tick 8 on,
+    every `advance` rolls back 8 frames and runs 9.
+  - `advance.kes` (`kestrel run --release bench/rollback/advance.kes [long]`): for each game,
+    player 1's session runs 2,000 frames (`long`: 20,000), five times on each wire, each run in
+    an `arena { }` of its own from a new session. A frame is the session's three calls: `remote`
+    with that tick's packet (all made before the timer starts), `local` and `advance`, timed
+    with `time.now()` around the loop. The game's `step` alone on the same inputs is timed too,
+    as the floor. It checks that the late wire made 1,992 rollbacks 8 deep and that its newest
+    confirmed state has the checksum of the `step`-alone run at that frame. The program was run
+    three times, and once with `long`.
+  - `memory.kes` (`KESTREL_ARENA_REPORT=1 kestrel run --release bench/rollback/memory.kes
+    pong|crowd [long]`): player 1's session on the late wire for 2 laps of the ring (32 frames;
+    `long`: 200 laps, 3,200 frames), each packet made and taken in inside an arena of its own,
+    the session in the program's memory, as Pong keeps its sessions. The runtime's report is the
+    program arena's size when `main` returns.
+  - `network.py` (`python bench/rollback/network.py <kestrel.exe> <old> <new>`): Pong's whole
+    run before and after the rewrite. The old Pong is `git show 1b5e284:kestrel/demos/pong/<f>`
+    for its five files, the new one today's two, each copied to `C:/kt/rb5/` (outside the synced
+    folder, since a run writes `pong.replay` beside it). Both run under the same `kestrel` with
+    `KESTREL_HEADLESS=<frames> KESTREL_HEADLESS_QUIET=1 KESTREL_POISON=0`, for 1, 3,000, 60,000
+    and 600,000 frames, five rounds, old and new in turn within each round, the whole process
+    timed by `time.perf_counter`. One frame's cost is (T(N) - T(1)) / (N - 1) from the medians.
+    It includes the headless window's frame and the end-of-run replay check (which runs the
+    confirmed frames again) and write, as the poll-cost measurement of the hot reload round does.
+  - For the verdict's why, the same ran with recording off on both (`RECORD = false` in the new
+    `pong.kes`; the old one's four-line `while` loop that records removed), and once more at 1
+    and 600,000 frames with the old Pong's two `send` calls wrapped in an `arena { }` (a scratch
+    script, not kept).
+
+Medians of five, with the range (min to max) in brackets.
+
+## `advance` per frame
+
+ns per frame, from the first of three runs of the program (the other two in the notes):
+
+| game | `step` alone | perfect wire | 8-frame rollback every frame | rollback / perfect |
+|---|---:|---:|---:|---:|
+| Pong | 9.7 (8.3-13.4) | **38.0** (37.1-47.1) | **131.8** (124.5-165.0) | 3.47 |
+| crowd | 1,388.8 (1,302.7-1,512.8) | **2,206.8** (2,185.4-2,221.7) | **18,138.1** (18,087.3-18,138.8) | 8.22 |
+| Pong, 20,000 frames | 8.3 (8.1-8.6) | 37.3 (37.2-37.5) | 126.9 (125.6-128.1) | 3.40 |
+| crowd, 20,000 frames | 1,372.3 (1,328.9-1,377.4) | 2,216.1 (2,212.6-2,274.9) | 18,232.9 (18,204.9-18,514.2) | 8.23 |
+
+- **The other two runs agree:** Pong 37.5 and 37.6 ns on the perfect wire, 133.6 and 133.1 ns
+  rolling back (3.57 and 3.54 times); the crowd 2,202 and 2,263 ns, 18,149 and 18,263 ns (8.24
+  and 8.07 times).
+- **Pong's session costs about 28 ns a frame over its `step`:** the snapshot into the ring,
+  taking in an 8-input packet, the input histories, and the confirm and compare checks. A
+  rollback of 8 frames runs nine steps and writes nine snapshots, about 95 ns more: 3.5 times
+  the perfect wire, not 9, because the fixed costs are most of Pong's frame.
+- **The crowd's session costs about 0.85 µs over its 1.3-1.4 µs `step`**, mostly the
+  snapshot's 16 KB of list items (copied into the slot's own storage, without allocating).
+  Rolling back 8 frames is nine steps and nine snapshots, 18.1 µs, 8.2 times the perfect wire.
+- In every run, the late wire's confirmed state equals the `step`-alone run's at the same frame
+  for both games, and it made 1,992 rollbacks 8 deep in 2,000 frames.
+
+## Pong's network frame, before and after
+
+As shipped (recording on; the new replay keeps 24 bytes a frame, the old 4). Load as above.
+
+| frames | `peer.kes`, ms | library, ms | `peer.kes`, µs a frame | library, µs a frame | library / `peer.kes` |
+|---|---:|---:|---:|---:|---:|
+| 1 | 105.3 (103.4-118.9) | 136.6 (135.0-138.2) | | | |
+| 3,000 | 114.1 (109.8-115.8) | 141.7 (141.5-144.7) | (2.941) | (1.719) | (not resolved) |
+| 60,000 | 233.5 (228.7-233.9) | 272.8 (269.0-274.4) | 2.138 | 2.270 | 1.062 |
+| **600,000** | 1,376.0 (1,371.8-1,381.3) | 1,518.9 (1,510.0-1,548.8) | **2.118** | **2.304** | **1.088** |
+
+With recording off on both:
+
+| frames | `peer.kes`, ms | library, ms | `peer.kes`, µs a frame | library, µs a frame | library / `peer.kes` |
+|---|---:|---:|---:|---:|---:|
+| 1 | 106.4 (102.7-107.6) | 135.4 (132.0-137.2) | | | |
+| 3,000 | 111.3 (110.0-112.7) | 140.5 (138.7-144.1) | (1.641) | (1.706) | (not resolved) |
+| 60,000 | 229.2 (228.4-229.5) | 271.3 (267.9-272.3) | 2.047 | 2.265 | 1.107 |
+| **600,000** | 1,360.8 (1,354.7-1,374.6) | 1,484.1 (1,470.5-1,509.8) | **2.091** | **2.248** | **1.075** |
+
+- **The 5% bound is missed: the library's network frame is 6-9% slower** (+0.13 to +0.19 µs on
+  about 2.1 µs), and 7.5% (+0.157 µs) with recording off. Both print the same lines at every
+  length, so it is the same game, the same network and the same rollbacks.
+- **Why:**
+  - **The packet's arena, about a third.** Old Pong's `send` copied the 8 inputs straight out
+    of the peer's history; the library's `outgoing()` makes a `Packet` whose inputs are
+    allocated, so Pong calls it inside an `arena { }`, one more each frame. Wrapping old Pong's
+    two `send` calls in an arena alone took it from 2.093 to 2.148 µs a frame (600,000 frames,
+    recording off): 0.055 µs of the 0.155 µs gap.
+  - **The wider input, most of the rest.** Old Pong's input was two `bool`s; an `Input` is an
+    `int` and two `float`s, copied into the histories, the guesses, every packet's 8 inputs and
+    `FakeNet`'s slots, and compared field by field in `remote`. `advance` also clears the next
+    input slot and adds the input delay, which old Pong did not do. This part was not split
+    further.
+  - **Recording, the remainder.** The replay keeps both `Input`s, 24 bytes a frame against 4:
+    recording costs the library about 0.056 µs a frame and old Pong about 0.027 µs.
+- **3,000 frames can't measure a frame.** The run is 110-140 ms, nearly all of it the compile,
+  and its frames take 5-7 ms in all, so the per-frame numbers there swing with the 1-frame run's
+  noise (1.6 and 2.9 µs for the same old Pong).
+- **The library's compile is about 30 ms longer** (1-frame runs, 105-106 against 135-137 ms): the
+  module's four files and `Session[Game]`, `Replay[Game]` and their methods made for Pong, on
+  every start. That is not a per-frame cost.
+
+## Session memory
+
+The program arena's size in bytes from `KESTREL_ARENA_REPORT=1`, `memory.kes` on the late wire
+(every frame rolls back 8 frames).
+
+| game | 2 laps (32 frames) | 200 laps (3,200 frames) |
+|---|---:|---:|
+| Pong | 65,536 | **65,536** |
+| crowd | 589,824 | **589,824** |
+
+- **Both stay flat after the first lap.** Pong's session fits in the program arena's first
+  64 KB block, as the demo's two do (Task 4: 65,536 bytes at 600 and 3,000 frames with
+  recording off).
+- The crowd's 576 KB holds the session's 17 crowds (the ring's 16 and the present, 16 KB of
+  items each), the start crowd, and the lists' growth while `new_crowd` built it. Every ring
+  write after the first lap reuses its slot's storage.
+- The report is a total of blocks, so a growth smaller than a block would not show at 2 against
+  200 laps unless it crossed one. `cli/tests/snapshot_memory.rs` makes the same check for a
+  list-holding session over 2 and 200 laps of 816 frames.
+
 # The hot reload round (2026-10-31)
 
 Measured 2026-10-31 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11) while the

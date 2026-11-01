@@ -1,0 +1,51 @@
+// The rollback library's memory, for the rollback round's measurements
+// (`bench/determinism/results.md`, "The rollback library"). Run with
+//
+//   KESTREL_ARENA_REPORT=1 kestrel run --release bench/rollback/memory.kes pong|crowd [long]
+//
+// Player 1's session of Pong's `Game` or of the crowd runs 2 laps of the snapshot ring (`long`:
+// 200), RING frames each, on `drive.kes`'s late wire, so every frame rolls back 8 frames and
+// writes the ring 9 times. Each frame's arriving packet is made and taken in inside an arena of
+// its own; the session is made once, in the program's memory. The runtime's report on stderr is
+// the program arena's size at the end: equal for 2 and 200 laps means the session allocates
+// nothing after its first lap.
+use args
+use rollback
+use { Rollback, new_session from rollback }
+use { new_game from game }
+use { new_crowd from crowd }
+use { packet, mine, LATE from drive }
+
+let LAPS = 2
+let LONG = 100
+
+drive[G: Rollback](name: string, start: G, laps: int) {
+    var s = new_session(start, me: 1, delay: 0)
+    let frames = laps * rollback.RING
+    for t from 0 to frames {
+        // As Pong does: the packet is taken in inside the arena, the frame is run outside it.
+        arena {
+            let p = packet(t - LATE)
+            if p.frame >= 0 {
+                s.remote(p)
+            }
+        }
+        s.local(mine(t))
+        s.advance()
+    }
+    print("{name}: {laps} laps, {frames} frames, rollbacks {s.rollbacks} deepest {s.deepest} confirmed {s.confirmed()}")
+}
+
+main() {
+    var laps = LAPS
+    var crowd = false
+    for a in args.all() {
+        if a == "long" { laps = LAPS * LONG }
+        if a == "crowd" { crowd = true }
+    }
+    if crowd {
+        drive("crowd", new_crowd(1), laps)
+    } else {
+        drive("pong", new_game(7), laps)
+    }
+}

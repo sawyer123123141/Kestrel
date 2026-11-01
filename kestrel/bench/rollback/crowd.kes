@@ -1,0 +1,50 @@
+// A heavier game for the rollback benches: 1,000 bodies whose positions and velocities are two
+// `list[vec2]`, and an `Rng`. Each frame moves every body by its velocity, scaled by both players'
+// inputs, wrapping around the field's edges, and the `Rng` gives one body a new velocity. Its
+// state holds lists, so a snapshot copies 16 KB of items (into the ring slot's own storage once
+// the slot has held a crowd: no allocation after the first lap) and `step` can't be `no_alloc`
+// through the library.
+use { Rng from random }
+use { Input, Rollback from rollback }
+
+pub let BODIES = 1000
+let SIZE = 1000.0
+let DT = 1.0 / 60
+
+pub struct Crowd: Rollback {
+    pos: list[vec2]
+    vel: list[vec2]
+    rng: Rng
+
+    @prove(deterministic)
+    pure step(var self, one: Input, two: Input) {
+        // Player 1's buttons speed the crowd up, player 2's slow it down.
+        let scale = (1.0 + float(one.buttons) * 0.25 - float(two.buttons) * 0.125) * DT
+        for i from 0 to self.pos.len {
+            var p = self.pos[i] + self.vel[i] * scale
+            if p.x < 0 {
+                p.x += SIZE
+            } else if p.x >= SIZE {
+                p.x -= SIZE
+            }
+            if p.y < 0 {
+                p.y += SIZE
+            } else if p.y >= SIZE {
+                p.y -= SIZE
+            }
+            self.pos[i] = p
+        }
+        let k = self.rng.randi_range(0, self.pos.len - 1)
+        self.vel[k] = vec2(self.rng.randf_range(-100, 100), self.rng.randf_range(-100, 100))
+    }
+}
+
+// A crowd of BODIES bodies at random places with random velocities, from `seed`.
+pub pure new_crowd(seed: int) -> Crowd {
+    var c = Crowd(pos: [], vel: [], rng: Rng(seed: seed))
+    for i from 0 to BODIES {
+        c.pos.add(vec2(c.rng.randf_range(0, SIZE), c.rng.randf_range(0, SIZE)))
+        c.vel.add(vec2(c.rng.randf_range(-100, 100), c.rng.randf_range(-100, 100)))
+    }
+    c
+}
