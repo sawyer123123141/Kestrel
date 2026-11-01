@@ -1,0 +1,5 @@
+frames 600 confirmed 593 checksum 579750723388870995
+rollbacks 53 deepest 9 lost 69
+checksums compared up to frame 570
+replay matches (593 frames)
+wrote pong.replay (593 frames)
