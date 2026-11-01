@@ -1,3 +1,171 @@
+# The hot reload round (2026-10-31)
+
+Measured 2026-10-31 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11) while the
+user was away: no build and no Godot running, and no keyboard or mouse input for the 27 minutes
+before the runs began. Roblox (`RobloxPlayerBeta`) was open but idle in the background, using
+about 0.7 of a thread (measured over 5 s); the I/O round's runs had no Roblox at all. The
+compiler is `kestrel` at 466627e, built twice: `--release` (`target/release/kestrel.exe`) and
+debug, for the record. Every program ran headless and quiet (`KESTREL_HEADLESS_QUIET=1`), at
+normal priority, one measurement at a time. **Load** is the whole machine's CPU use
+(`\Processor(_Total)\% Processor Time`, 2 s) before and after each block: 7-19%, the Claude app,
+OneDrive, Defender and the idle Roblox. Spec: `docs/superpowers/specs/2026-10-30-hot-reload-design.md`.
+
+**Short version:** with the release `kestrel`, a save reloads **Pong in 0.28 s** (median of
+five; at most 0.36 s in twenty saves) and **the voxel engine in 0.28 s** (at most 0.45 s), so
+the spec's "within a second for Pong" holds, with room. **The counter** takes 0.21 s. About
+0.11 s of Pong's time and 0.19 s of the voxel engine's is the compile; the rest is the
+quarter-second poll, up to 0.25 s. The poll costs **nothing measurable a frame**: about 0.01 µs
+on Pong's 2.1 µs frame, inside the noise. A same-shape reload keeps about 0.9 MB. A **shape
+change keeps about 58-64 MB** of the voxel engine: the old state's world is not given back, as
+decision 4 and the anti-goals accept. The debug `kestrel` takes 1.2 s for Pong and 2.3 s for the voxel engine,
+which is Task 5's 1.3 and 2.3 s.
+
+## How it was measured
+
+- **The driver** is `cli/tests/reload_bench.rs`: three `#[ignore]`d tests that print their
+  numbers. It uses the reload tests' harness, `cli/tests/common/session.rs`, which edits a file
+  by writing a new one and renaming it over the old. One command runs all three:
+
+  ```
+  cargo test --release -p kestrel-cli --test reload_bench -- --ignored --nocapture --test-threads=1
+  ```
+
+  Without `--release`, the same command measures the debug `kestrel`. Each test can also be run
+  alone by adding its name and `--exact` (`latency`, `poll_cost`, `memory`).
+- **Where the programs run:** every program runs from a copy in the system's temporary folder,
+  outside the synced checkout. The copy runs with `KESTREL_POISON=0`, as a normal run does. The
+  tests' `hermetic` turns poisoning on, and poisoning never reuses freed arena memory: in a
+  first try with it on, Pong ran out of memory at 600,000 frames, and the voxel engine reached
+  863 MB before any reload.
+- **Latency** is the wall time from just before the rename to the `reloaded <file> in <t> s`
+  line on stderr.
+  - The saves are 0.4 s apart plus 37 ms more each time, so they land at every point of the
+    poll. Twenty saves per program alternate between two versions of a constant:
+    - the counter: `K`, 2 and 3;
+    - Pong: `MAX_STEPS`, 4 and 5;
+    - the voxel engine: `WALK` in `player.kes`, 4.3 and 6.0.
+  - The headline is the **median of the first five**. The **fastest of the twenty** is a save
+    that landed just before a poll, so it is about the compile alone.
+  - The host's `<t>` is not the compile. As decision 6 says, it runs from the save (the file's
+    modification time) to the swap, so it holds the poll wait, the compile and the wait for the
+    end of the frame. It matches the wall time to within 0.01 s. The brief expected it to be the
+    compile, which is wrong.
+  - Each program runs with `TRACE` on and its frames slowed, as the demos' reload tests do:
+    5 ms a frame for the counter and Pong, 2 ms more for the voxel engine.
+  - The first edit comes after 20 frames of the counter, 30 of Pong, and once the voxel player
+    has spawned and the columns have stopped changing for 2 s.
+  - Each program is measured with and without `kestrel run --release`.
+  - For comparison, a **one-frame `--no-reload` run** of the same files is timed whole, five
+    times: the compile plus the process's start and one `setup` and `frame`.
+- **Poll cost:** Pong from an unedited copy (`TRACE` off, no sleep), run whole at 1, 2,000,
+  60,000 and 600,000 frames, with reloading on and with `--no-reload`, five rounds in turn. The
+  cost of one frame is (T(N) - T(1)) / (N - 1). That includes Pong's end-of-run replay check,
+  which runs the confirmed frames again. Both modes run through the reloading host's loop; the
+  only difference is the watcher.
+- **Memory:** the voxel engine as for latency, with `WorkingSet64` and `PrivateMemorySize64` of
+  the `kestrel.exe` the test started (found by its parent process id) read at each point:
+  - once the world has streamed in (the player has spawned and stood still for 10 frames, and
+    the columns in use have not changed for 2 s);
+  - after ten `WALK` edits, and the world settled again;
+  - after each of ten shape changes, with the world streamed in again each time. The shape
+    changes alternately add `extra: int` to `VoxelState` (and `extra: 0` to `setup`'s
+    constructor) and remove it. Each one printed `state reset: VoxelState changed shape`.
+- **Window:** no visible-window check was run. The user does not want windows opened, and
+  every run here is headless.
+
+## Reload latency, save to `reloaded`
+
+Load 8.0% before and 15.2% after the release block, and 8.1% and 18.8% for the debug block.
+Seconds, as median (min-max):
+
+| program | `kestrel` | median of 5 | 20 saves: median | fastest (about the compile) | one-frame run |
+|---|---|---:|---:|---:|---:|
+| counter | release | **0.21** (0.03-0.26) | 0.16 (0.02-0.26) | 0.02 | 0.045 |
+| Pong | release | **0.28** (0.19-0.32) | 0.26 (0.14-0.36) | 0.14 | 0.125 |
+| Pong, `run --release` | release | 0.27 (0.21-0.32) | 0.24 (0.11-0.34) | 0.11 | 0.125 |
+| voxel engine | release | **0.28** (0.22-0.37) | 0.31 (0.19-0.42) | 0.19 | 0.268 |
+| voxel engine, `run --release` | release | 0.30 (0.21-0.36) | 0.31 (0.19-0.45) | 0.19 | 0.247 |
+| counter | debug | 0.25 (0.08-0.27) | 0.17 (0.01-0.27) | 0.01 | 0.044 |
+| Pong | debug | 1.16 (1.06-1.31) | 1.25 (1.04-1.62) | 1.04 | 1.000 |
+| Pong, `run --release` | debug | 1.37 (1.13-1.47) | 1.37 (1.13-1.51) | 1.13 | 0.978 |
+| voxel engine | debug | 2.28 (2.11-2.38) | 2.27 (2.00-2.38) | 2.00 | 1.750 |
+| voxel engine, `run --release` | debug | 2.20 (1.97-2.37) | 2.22 (1.97-2.37) | 1.97 | 1.630 |
+
+- **"Within a second for Pong" holds in release.** The median is 0.28 s and the slowest of 40
+  Pong saves 0.36 s. The voxel engine, at 0.28 s median and 0.45 s slowest, is under a second
+  too. With the debug `kestrel` it does not hold: Pong takes 1.2 s and the voxel engine 2.3 s,
+  as Task 5 found.
+- **The poll is most of a release reload.**
+  - The compile, the fastest save's time, is 0.02 s for the counter, 0.11-0.14 s for Pong and
+    0.19 s for the voxel engine.
+  - The rest, up to 0.25 s and about 0.13 s on average, is the wait for the next poll.
+  - The 37 ms steps between saves show this in the raw times. Each save takes about 37 ms less
+    than the one before, until it misses a poll and takes 0.25 s more (Pong: 0.30, 0.31, 0.27,
+    0.25, 0.23, 0.20, 0.11, then 0.35).
+  - A shorter poll interval would cut the median by up to 0.1 s. That is not done here.
+- **The one-frame run backs up the compile times.** It is the compile plus about 0.02-0.04 s of
+  process start (the counter's whole run is 0.024-0.045 s). Its voxel time also holds `setup`'s
+  world and one frame, so it is above the fastest save.
+- **`kestrel run --release` makes no difference with the release `kestrel`.** With the debug
+  one, Pong's optimizing compile takes 0.2 s more.
+- **Earlier runs agree.** Two earlier release runs had poisoning on, before the driver turned
+  it off. Five saves each gave medians of 0.17, 0.24 and 0.29 s for the counter, Pong and the
+  voxel engine. Twenty saves each gave first-five medians of 0.21, 0.27 and 0.31 s.
+
+## The poll's cost per frame
+
+Pong, headless and quiet, the whole process in ms, five rounds. Load 7.3% before and 9.2% after.
+
+| frames | reload on | `--no-reload` | per frame, on | per frame, off | difference |
+|---|---:|---:|---:|---:|---:|
+| 1 | 125.2 (124.8-225.7) | 124.6 (124.0-167.5) | | | |
+| **2,000** | 132.9 (124.4-145.0) | 124.7 (123.9-126.3) | (3.85 µs) | (0.03 µs) | (not resolved) |
+| 60,000 | 246.9 (246.2-269.9) | 246.1 (245.2-250.1) | 2.028 µs | 2.026 µs | +0.002 µs |
+| **600,000** | 1,407.0 (1,399.4-1,425.1) | 1,400.3 (1,363.9-1,425.7) | 2.136 µs | 2.126 µs | **+0.010 µs** |
+
+- **The poll costs nothing measurable.** Over 600,000 frames (1.4 s, so about six polls that
+  read the files' times), reloading on is 7 ms slower than off. That is 0.01 µs, or 0.5%, of a
+  2.1 µs frame, and well inside the 62 ms spread of the `--no-reload` runs. At 60,000 frames it
+  is 0.002 µs.
+- Between polls, a frame's whole cost is one `Instant::elapsed` against the quarter second.
+- **2,000 frames can't measure it.** The run is 125 ms, nearly all of it the compile, and its
+  frames take a few ms at most. Even the `--no-reload` runs are within 0.1 ms of the one-frame
+  ones.
+- Two of the five reload-on 2,000-frame runs took 144-145 ms. The watcher's first poll comes
+  250 ms after the start, after those runs had already ended, so it isn't a per-frame cost, and
+  the gap is gone at 60,000 and 600,000 frames. I did not find its cause.
+
+## Memory after ten reloads
+
+The voxel engine, release `kestrel`, MB. Load 10.7% before and 15.2% after.
+
+| point | working set | private bytes | columns |
+|---|---:|---:|---:|
+| world streamed in, after `setup` | 314.3 | 327.9 | 269 |
+| after 10 same-shape reloads | 325.1 | 336.4 | 269 |
+| after shape change 1 | 391.2 | 401.4 | 269 |
+| after shape change 2 | 483.0 | 498.3 | 269 |
+| after shape change 3 | 553.7 | 569.5 | 269 |
+| after shape change 5 | 674.8 | 689.7 | 269 |
+| after shape change 10 | **966.4** | **979.9** | 269 |
+
+- **A shape change keeps about 58 MB, and 64 MB on average over the ten.** From the fourth on,
+  each one adds 58.0-59.0 MB of working set. The first three add 66, 92 and 71 MB.
+  - That is the voxel engine's world, which the I/O round sized at about 58 MB. The new `setup`
+    makes a new world, and the old state's arena memory is not given back.
+  - The spec accepts this. Decision 4 says the old state's arena memory is not reclaimed, and
+    the anti-goals say a shape change leaks the old state once.
+  - For the voxel engine, ten shape changes cost about 0.6 GB, and a restart gets it back.
+  - Pong's state is small (its arena stays at 64 KB), so for Pong a shape change keeps almost
+    nothing.
+- **A same-shape reload keeps about 0.9 MB**: 10.9 MB of working set and 8.5 MB of private
+  bytes over ten. That fits decision 2's leaked code: the JIT modules are never unmapped, and the
+  host keeps the old programs (`Live.retired`). This measurement does not prove it. The world itself stays: still 269
+  columns, and no new `setup`.
+- An earlier run with poisoning off stopped at the shape changes because of CRLF line ends in
+  the checkout's `main.kes`, which the driver now handles. Until then it gave the same numbers:
+  313.7 and 324.5 MB of working set, against 314.3 and 325.1.
+
 # The I/O round (2026-10-30)
 
 Measured 2026-10-30 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11), the PC
