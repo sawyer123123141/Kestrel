@@ -1,0 +1,23 @@
+// expect: 12 [7]
+// expect: 4 [2]
+// A loop that clears the list it reads.
+main() {
+    var xs: list[int] = [1, 2, 3]
+    var total = 0
+    for i from 0 to 3 {
+        total += xs[0]
+        xs.clear()
+        xs.add(i + 5)
+    }
+    print(total, xs)
+    var ys: list[int] = [4, 5]
+    var seen = 0
+    var k = 0
+    while k < 3 {
+        seen += ys.len
+        ys.clear()
+        ys.add(k)
+        k += 1
+    }
+    print(seen, ys)
+}

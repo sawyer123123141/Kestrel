@@ -1,0 +1,12 @@
+// expect: 1
+// expect: 1
+// expect-exit: 101
+// expect-stderr: index 4 out of bounds for length 4 on line 10
+// An index past the end of a list a loop adds to fails as before.
+main() {
+    var xs: list[int] = [1]
+    for i from 0 to 5 {
+        xs.add(i)
+        print(xs[i * 2])
+    }
+}

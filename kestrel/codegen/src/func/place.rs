@@ -38,7 +38,19 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         };
         let mut ty = self.f.locals[p.root.0 as usize].ty;
         let mut offset = 0;
+        // The fields from the root so far, while the path has only fields: the list an index
+        // reads an item of, whose header a loop may keep in variables (see `headers`).
+        let mut fields: Option<Vec<u32>> = (!self.hdr_cache.is_empty()).then(Vec::new);
         for proj in &p.path {
+            match proj {
+                Proj::Field(fi) => {
+                    if let Some(fs) = &mut fields {
+                        fs.push(*fi);
+                    }
+                }
+                Proj::Index { .. } => {}
+                _ => fields = None,
+            }
             let field = match (proj, ty) {
                 (Proj::Field(fi), KTy::Struct(s)) => &kir.layout(s).fields[*fi as usize],
                 (Proj::Variant(v, fi), KTy::Enum(e)) => &kir.enum_layout(e).variants[*v as usize].fields[*fi as usize],
@@ -48,9 +60,10 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
                     continue;
                 }
                 (Proj::Index { at, check }, KTy::Array(el) | KTy::List(el)) => {
+                    let cached = fields.take().and_then(|fs| self.cached(p.root, &fs));
                     let header = self.offset(addr, offset);
                     ty = kir.elem(el);
-                    addr = self.element_addr(header, at, *check, ty)?;
+                    addr = self.element_addr(header, at, *check, ty, cached)?;
                     offset = 0;
                     continue;
                 }
@@ -88,21 +101,26 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         }
     }
 
-    /// The address of element `index` of the array or list whose header is at `header`.
-    fn element_addr(&mut self, header: Value, index: &kir::Expr, check: IndexCheck, elem: KTy) -> Result<Value, String> {
+    /// The address of element `index` of the array or list whose header is at `header`, or, while
+    /// a loop keeps that header in variables, in the cache entry `cached` (read after the index,
+    /// which may add to the list).
+    fn element_addr(&mut self, header: Value, index: &kir::Expr, check: IndexCheck, elem: KTy, cached: Option<usize>) -> Result<Value, String> {
         let i = self.expr(index)?;
         let i = self.widen_i64(i, index.ty);
         match check {
-            IndexCheck::Checked => self.bounds_check(header, i, index.line, Check::Emit),
+            IndexCheck::Checked => self.bounds_check(header, i, index.line, Check::Emit, cached),
             IndexCheck::Known => {}
             IndexCheck::Proven => {
                 let mode = self.proven_check();
                 if mode != Check::Skip {
-                    self.bounds_check(header, i, index.line, mode);
+                    self.bounds_check(header, i, index.line, mode, cached);
                 }
             }
         }
-        let ptr = self.b.ins().load(self.ptr, MemFlagsData::trusted(), header, 0);
+        let ptr = match cached {
+            Some(c) => self.cached_header(c).0,
+            None => self.b.ins().load(self.ptr, MemFlagsData::trusted(), header, 0),
+        };
         let (size, _) = self.shared.kir.size_align(elem);
         let at = self.b.ins().imul_imm_s(i, size as i64);
         Ok(self.b.ins().iadd(ptr, at))
@@ -110,8 +128,11 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
 
     /// Panics unless `0 <= i < len` for the collection whose header is at `header`; with
     /// `Verify`, fails as a compiler bug instead.
-    fn bounds_check(&mut self, header: Value, i: Value, line: u32, check: Check) {
-        let len = self.b.ins().load(types::I64, MemFlagsData::trusted(), header, 8);
+    fn bounds_check(&mut self, header: Value, i: Value, line: u32, check: Check, cached: Option<usize>) {
+        let len = match cached {
+            Some(c) => self.cached_header(c).1,
+            None => self.b.ins().load(types::I64, MemFlagsData::trusted(), header, 8),
+        };
         // Unsigned: a negative index looks huge, so one compare checks both ends.
         let bad = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, i, len);
         let (fail, ok) = (self.b.create_block(), self.b.create_block());
@@ -168,6 +189,25 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
     /// Copies a value of aggregate type `ty` from `src` to `dst`, byte for byte.
     pub(crate) fn copy_aggregate(&mut self, dst: Value, src: Value, ty: KTy) {
         self.copy_fields(dst, src, 0, ty);
+    }
+
+    /// Copies a value of aggregate type `ty` from one place's memory to another's, as
+    /// `copy_aggregate` does, except that a plain struct whose leaves are all 4-byte numbers and
+    /// whose size is a multiple of 8 moves in 8-byte integer loads and stores: a bit copy, without
+    /// the `aligned` flag (such a struct is 4-aligned). Only between places, whose memory wasn't
+    /// just written field by field: an 8-byte load of two 4-byte stores can't take its value from
+    /// the store buffer and waits for them, where 4-byte loads wouldn't.
+    fn copy_place_value(&mut self, dst: Value, src: Value, ty: KTy) {
+        let kir = self.shared.kir;
+        let (size, _) = kir.size_align(ty);
+        if size % 8 != 0 || !four_byte_leaves(kir, ty) {
+            return self.copy_aggregate(dst, src, ty);
+        }
+        let flags = MemFlagsData::new().with_notrap();
+        for at in (0..size as i32).step_by(8) {
+            let v = self.b.ins().load(types::I64, flags, src, at);
+            self.b.ins().store(flags, v, dst, at);
+        }
     }
 
     /// Structs field by field; everything else as raw bytes (which enum
@@ -235,7 +275,12 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         }
         let src = match &e.kind {
             // Two places of one type are the same memory or don't overlap.
-            kir::ExprKind::Load(from) => self.place_addr(from)?,
+            kir::ExprKind::Load(from) => {
+                let src = self.place_addr(from)?;
+                let dst = self.place_addr(p)?;
+                self.copy_place_value(dst, src, e.ty);
+                return Ok(());
+            }
             // Built only from locals and constants, so it can't read the place it replaces, and
             // needs no temporary: the values are read first, then the place is found once (its
             // index expressions can change a local the value reads) and each value is stored.
@@ -258,5 +303,17 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         let dst = self.place_addr(p)?;
         self.copy_aggregate(dst, src, e.ty);
         Ok(())
+    }
+}
+
+/// Whether every leaf of `ty`, a struct, is a 4-byte number (`int` or `float`, a `vec2`'s lanes).
+fn four_byte_leaves(kir: &kir::Module, ty: KTy) -> bool {
+    match ty {
+        KTy::Struct(s) => kir.layout(s).fields.iter().all(|f| match f.ty {
+            KTy::I32 | KTy::F32 => true,
+            KTy::Struct(_) => four_byte_leaves(kir, f.ty),
+            _ => false,
+        }),
+        _ => false,
     }
 }

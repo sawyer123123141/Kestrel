@@ -78,8 +78,9 @@ pub enum ListOp {
     SortBy(SortKey),
     /// `[n]` (an `i64`): gives the list room for at least `n` items; a list with less room gets a
     /// new buffer of exactly `n` items in its own arena (`kestrel_rt_list_reserve`). The length and
-    /// the items are unchanged. Fails when `n` is more than a list can hold. Only `to_bytes` uses it
-    /// (see `lower::bytes`), to allocate its result once.
+    /// the items are unchanged. Fails when `n` is more than a list can hold. `to_bytes` and
+    /// `from_bytes` use it (see `lower::bytes` and `lower::bytes_read`) to allocate their results
+    /// once, and `map` (see `lower::list_fns`) to make room for every result before its loop.
     Reserve,
     /// `[at, value]`, on a `list[u8]`: writes `value`'s bytes into the items from index `at` (an
     /// `i64`), little-endian and unaligned: a bool one byte (0 or 1), a number its width (a float

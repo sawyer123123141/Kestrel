@@ -1,0 +1,17 @@
+// env: KESTREL_THREADS=4
+// expect: 605 100
+// A loop that changes the items of the list it reads in a `par for`.
+main() {
+    var ys = list[int]()
+    for i from 0 to 100 {
+        ys.add(i)
+    }
+    var total = 0
+    for k from 0 to 3 {
+        par for y in ys {
+            y += k
+        }
+        total += ys[0] + ys[99] + ys.len
+    }
+    print(total, ys.len)
+}

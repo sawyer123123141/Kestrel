@@ -188,8 +188,14 @@ impl Walk<'_> {
                 }
             }
             ListOp::Reserve => {
-                // Only `to_bytes` and `from_bytes` reserve room (see `lower::bytes` and
-                // `lower::bytes_read`): for the lists they make.
+                // `to_bytes` and `from_bytes` reserve room (see `lower::bytes` and
+                // `lower::bytes_read`) for the lists they make, and `map` for its result (see
+                // `lower::list_fns`). `map`'s `add` after it says the same in the same words
+                // ("`map` builds a new list", and fails if it would hold too many items), so its
+                // room adds nothing to say.
+                if self.builtin_of(p.root) == Some("map") {
+                    return;
+                }
                 let (direct, via, fails) = match self.builtin_of(p.root) {
                     Some("to_bytes") => ("`to_bytes` allocates its result", "saves a value with `to_bytes`", "`to_bytes`"),
                     Some("from_bytes") => ("`from_bytes` makes the lists it reads", "makes the lists it reads", "`from_bytes`"),

@@ -1,0 +1,26 @@
+// expect: 74 [10, 20, 30]
+// expect: 17
+// A loop that replaces the list it reads, or the struct holding it.
+struct Bag {
+    items: list[int]
+}
+
+main() {
+    var xs: list[int] = [1, 2]
+    let ys: list[int] = [10, 20, 30]
+    var total = 0
+    for i from 0 to 4 {
+        total += xs[xs.len - 1] + xs.len
+        if i == 1 {
+            xs = ys
+        }
+    }
+    print(total, xs)
+    var b = Bag(items: [1])
+    var t = 0
+    for i from 0 to 3 {
+        t += b.items[0] + b.items.len
+        b = Bag(items: [i + 5, i])
+    }
+    print(t)
+}

@@ -1,0 +1,11 @@
+// expect: 1
+// expect: 2
+// expect-exit: 101
+// expect-stderr: index 2 out of bounds for length 2 on line 9
+// An index past the end of a list a loop only reads fails as before.
+main() {
+    var xs: list[int] = [1, 2]
+    for i from 0 to 5 {
+        print(xs[i])
+    }
+}

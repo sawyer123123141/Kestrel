@@ -1,0 +1,32 @@
+// expect: 41 19 172
+// expect: 31 154
+// A loop that passes the list it reads as `var` to a call that adds to it.
+push_twice(var xs: list[int], v: int) {
+    xs.add(v)
+    xs.add(v)
+}
+
+// Recursive, so it isn't inlined.
+fill(var xs: list[int], n: int) {
+    if n > 0 {
+        xs.add(n)
+        fill(var xs, n - 1)
+    }
+}
+
+main() {
+    var xs: list[int] = [1]
+    var seen = 0
+    for i from 0 to 20 {
+        seen += xs[xs.len - 1]
+        push_twice(var xs, i)
+    }
+    print(xs.len, xs[40], seen)
+    var ys: list[int] = [0]
+    var s = 0
+    for i from 0 to 10 {
+        s += ys[ys.len - 1] + ys.len
+        fill(var ys, 3)
+    }
+    print(ys.len, s)
+}

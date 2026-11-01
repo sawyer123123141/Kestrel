@@ -1,0 +1,41 @@
+// expect: 1 64 64 63
+// expect: 0 1 2 3
+// expect: 39 78 79 119 40
+// expect: 29 58 59 30
+// A loop that reads a list and adds to it, growing it past its capacity again and again: every
+// read after a grow sees the new buffer and the new length.
+main() {
+    var xs: list[int] = [1]
+    var firsts = 0
+    for i from 0 to 63 {
+        xs.add(xs[i] + 1)
+        firsts += xs[0]
+    }
+    print(xs[0], xs[xs.len - 1], xs.len, firsts)
+    var ys = list[int]()
+    while ys.len < 4 {
+        ys.add(ys.len)
+    }
+    print(ys[0], ys[1], ys[2], ys[3])
+    // Four lists added to in one loop, then three.
+    var a = list[int]()
+    var b = list[int]()
+    var c = list[int]()
+    var d = list[int]()
+    for i from 0 to 40 {
+        a.add(i)
+        b.add(a[i] * 2)
+        c.add(b[i] + 1)
+        d.add(c[i] + a.len)
+    }
+    print(a[39], b[39], c[39], d[39], d.len)
+    var e = list[int]()
+    var f = list[int]()
+    var g = list[int]()
+    for i from 0 to 30 {
+        e.add(i)
+        f.add(e[e.len - 1] * 2)
+        g.add(f[i] + 1)
+    }
+    print(e[29], f[29], g[29], g.len)
+}

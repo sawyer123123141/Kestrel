@@ -9,9 +9,9 @@ use kestrel_kir::{self as kir, KTy, Place};
 
 use super::FuncLowerer;
 
-const PTR: i32 = 0;
+pub(super) const PTR: i32 = 0;
 pub(super) const LEN: i32 = 8;
-const CAP: i32 = 16;
+pub(super) const CAP: i32 = 16;
 const ARENA: i32 = 24;
 
 impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
@@ -82,6 +82,10 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
     }
 
     pub(crate) fn len(&mut self, p: &Place) -> Result<Value, String> {
+        // A loop that keeps the list's header in variables (see `headers`).
+        if let Some(c) = self.cached_place(p) {
+            return Ok(self.cached_header(c).1);
+        }
         let addr = self.place_addr(p)?;
         Ok(self.b.ins().load(types::I64, MemFlagsData::trusted(), addr, LEN))
     }
@@ -128,6 +132,12 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             self.expr(value)?
         };
         let header = self.place_addr(list)?;
+        if let Some(c) = self.cached_place(list) {
+            // A loop that adds to a list always keeps its capacity too (see `headers`).
+            debug_assert!(self.add_cached(c), "a list a loop adds to is cached without its capacity");
+            self.list_add_cached(c, header, v, value.ty, size, align);
+            return Ok(());
+        }
         let len = self.b.ins().load(types::I64, MemFlagsData::trusted(), header, LEN);
         let cap = self.b.ins().load(types::I64, MemFlagsData::trusted(), header, CAP);
         let full = self.b.ins().icmp(IntCC::SignedGreaterThanOrEqual, len, cap);

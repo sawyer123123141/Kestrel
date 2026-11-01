@@ -1,0 +1,25 @@
+// expect: 66 [1, 2, 3, 0, 1, 2]
+// expect: 38
+// A loop that makes and calls a closure that captures the list it reads and adds to.
+apply(f: (int) -> int, x: int) -> int {
+    f(x)
+}
+
+main() {
+    var xs: list[int] = [1, 2, 3]
+    var total = 0
+    for i from 0 to 3 {
+        let f = (k: int) -> int { xs[k] * 10 }
+        total += f(i) + xs[i]
+        xs.add(i)
+    }
+    print(total, xs)
+    let g = (k: int) -> int { k + 1 }
+    var ys: list[int] = [5]
+    var s = 0
+    for i from 0 to 3 {
+        s += apply(g, ys[ys.len - 1])
+        ys.add(ys[i] * 2)
+    }
+    print(s)
+}

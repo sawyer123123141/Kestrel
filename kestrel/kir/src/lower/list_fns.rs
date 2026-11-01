@@ -6,7 +6,8 @@
 //! for each item, read-only, in order:
 //! - `filter` copies each kept item into a new list (as an indexed read would); a scalar item is
 //!   read once, into a local, for both the test and the copy;
-//! - `map` adds each result, a fresh value, to a new list;
+//! - `map` adds each result, a fresh value, to a new list, which it gives room for every result
+//!   before the loop (`ListOp::Reserve`), so the loop's `add` never grows it;
 //! - `any` and `all` return at the first item that decides.
 //!
 //! **A literal gets a loop of its own** (one per literal's code): the loop calls the literal's
@@ -107,6 +108,8 @@ impl Helpers {
             ListMethod::Map => {
                 locals.push(local("mapped", ret, LocalKind::Addressed));
                 body.push(Stmt::Let(out, expr(ExprKind::ListNew, ret)));
+                // Room for every result first, so the loop's `add` never grows the list.
+                body.push(Stmt::List(ListOp::Reserve, Place::local(out), vec![expr(ExprKind::Len(xs.clone()), KTy::I64)]));
                 vec![Stmt::ListAdd(Place::local(out), result_of(elem_of(ret, t)))]
             }
             ListMethod::Any => vec![Stmt::If { cond: result_of(KTy::Bool), then_body: vec![truth(true)], else_body: Vec::new() }],

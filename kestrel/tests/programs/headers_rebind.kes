@@ -1,0 +1,30 @@
+// expect: 166 [Row(xs: [1, 2, 0, 1]), Row(xs: [3, 4, 5, 0, 1])]
+// expect: 9
+// A loop element rebound each time round an outer loop, its list read and added to by inner
+// loops; and a list made inside a loop.
+struct Row {
+    xs: list[int]
+}
+
+main() {
+    var rows: list[Row] = [Row([1, 2]), Row([3, 4, 5])]
+    var total = 0
+    for r in rows {
+        for j from 0 to r.xs.len {
+            total += r.xs[j] * 10
+        }
+        for j from 0 to 2 {
+            r.xs.add(j)
+            total += r.xs.len
+        }
+    }
+    print(total, rows)
+    var t = 0
+    for i from 0 to 3 {
+        var zs: list[int] = [i, i + 1]
+        for j from 0 to 2 {
+            t += zs[j]
+        }
+    }
+    print(t)
+}

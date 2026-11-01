@@ -1,0 +1,21 @@
+// expect: [] 0
+// expect: [2, 4, 6]
+// expect: 100 198
+// expect: [2, 4, 6, 7] 4
+// `map` makes room for every result before its loop, so its list doesn't grow.
+main() {
+    let e = list[int]()
+    let m = e.map((x) { x * 2 })
+    print(m, m.len)
+    let xs: list[int] = [1, 2, 3]
+    print(xs.map((x) { x * 2 }))
+    var big = list[int]()
+    for i from 0 to 100 {
+        big.add(i)
+    }
+    let d = big.map((x) { x * 2 })
+    print(d.len, d[99])
+    var d2 = xs.map((x) { x * 2 })
+    d2.add(7)
+    print(d2, d2.len)
+}

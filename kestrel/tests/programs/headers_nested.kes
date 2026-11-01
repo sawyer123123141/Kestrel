@@ -1,0 +1,22 @@
+// expect: 720 11 29
+// expect: 18
+// A list of lists: an inner list is added to while the outer one is read.
+main() {
+    var grid: list[list[int]] = [[1], [2], [3]]
+    var total = 0
+    for i from 0 to 30 {
+        let r = i % 3
+        grid[r].add(i)
+        total += grid[r][grid[r].len - 1] + grid.len + grid[0].len
+    }
+    print(total, grid[0].len, grid[2][10])
+    var sums = 0
+    var rows: list[list[int]] = [[1], [1], [1]]
+    for k from 0 to 3 {
+        for j from 0 to 3 {
+            rows[k].add(j)
+            sums += rows[k][rows[k].len - 1] + rows[0][0]
+        }
+    }
+    print(sums)
+}

@@ -1,0 +1,46 @@
+// expect: 15 [4, 9, 15] c
+// expect: 17 9
+// expect: 18 3
+// A loop that writes the other fields of the struct holding the list it reads, and passes the
+// whole struct or another field as `var`.
+struct Bag {
+    items: list[int]
+    count: int
+    name: string
+}
+
+grow(var b: Bag, n: int) {
+    if n > 0 {
+        b.items.add(n)
+        grow(var b, n - 1)
+    }
+}
+
+bump(var n: int, by: int) {
+    if by > 0 {
+        n += 1
+        bump(var n, by - 1)
+    }
+}
+
+main() {
+    var b = Bag(items: [4, 5, 6], count: 0, name: "b")
+    for i from 0 to 3 {
+        b.count += b.items[i]
+        b.name = "c"
+        b.items[i] = b.count
+    }
+    print(b.count, b.items, b.name)
+    var total = 0
+    for i from 0 to 3 {
+        total += b.items[b.items.len - 1]
+        grow(var b, 2)
+    }
+    print(total, b.items.len)
+    var c = Bag(items: [1, 2, 3], count: 0, name: "c")
+    for i from 0 to 3 {
+        bump(var c.count, c.items[i])
+        c.count += c.items[i] * 2
+    }
+    print(c.count, c.items.len)
+}
