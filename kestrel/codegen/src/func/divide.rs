@@ -1,5 +1,5 @@
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{InstBuilder, Value};
+use cranelift_codegen::ir::{types, InstBuilder, Value};
 use cranelift_module::Module;
 use kestrel_kir::{BinOp, KTy};
 use kestrel_runtime::{PANIC_DIV_ZERO, PANIC_OVERFLOW};
@@ -50,7 +50,15 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             let k = c.trailing_zeros() as i64;
             return Some(if signed { self.signed_pow2(is_div, a, t, k) } else { self.unsigned_pow2(is_div, a, k) });
         }
-        // Neither the zero check nor MIN / -1 can fire for any other literal.
+        // Neither the zero check nor MIN / -1 can fire for any other literal. Cranelift turns a
+        // division of an `i32` or `i64` by a constant into a multiply by its magic number, but
+        // leaves an `i8` one a `div`, so a `u8` is divided as an `i32`.
+        if t == KTy::U8 {
+            let wide = self.b.ins().uextend(types::I32, a);
+            let d = self.b.ins().iconst(types::I32, c);
+            let v = if is_div { self.b.ins().udiv(wide, d) } else { self.b.ins().urem(wide, d) };
+            return Some(self.b.ins().ireduce(types::I8, v));
+        }
         let d = self.iconst(t, c);
         Some(match (signed, is_div) {
             (true, true) => self.b.ins().sdiv(a, d),

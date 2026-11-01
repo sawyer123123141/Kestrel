@@ -1,0 +1,59 @@
+// expect: -1000 -142 -6 142 -6 -100 0 0 -1000
+// expect: -15 -2 -1 2 -1 -1 -5 0 -15
+// expect: -14 -2 0 2 0 -1 -4 0 -14
+// expect: -8 -1 -1 1 -1 0 -8 0 -8
+// expect: -7 -1 0 1 0 0 -7 0 -7
+// expect: -6 0 -6 0 -6 0 -6 0 -6
+// expect: -1 0 -1 0 -1 0 -1 0 -1
+// expect: 0 0 0 0 0 0 0 0 0
+// expect: 1 0 1 0 1 0 1 0 1
+// expect: 6 0 6 0 6 0 6 0 6
+// expect: 7 1 0 -1 0 0 7 0 7
+// expect: 8 1 1 -1 1 0 8 0 8
+// expect: 14 2 0 -2 0 1 4 0 14
+// expect: 15 2 1 -2 1 1 5 0 15
+// expect: 1000 142 6 -142 6 100 0 0 1000
+// expect: 123456789 17636684 1 -17636684 1 12345678 9 -123 456420
+// expect: -5000000000 4999 -985003
+// expect: -1000003 1 0
+// expect: 1000002 0 1000002
+// expect: 5000000000 -4999 985003
+// expect: -9 false true false
+// expect: -8 true false true
+// expect: -3 false true false
+// expect: -2 true false false
+// expect: -1 false true false
+// expect: 0 true false true
+// expect: 1 false true false
+// expect: 2 true false false
+// expect: 3 false true false
+// expect: 8 true false true
+// expect: 9 false true false
+// expect: -24 true -3 0
+// expect: -17 false -2 -1
+// expect: -16 true -2 0
+// expect: -8 true -1 0
+// expect: -1 false 0 -1
+// expect: 0 true 0 0
+// expect: 8 true 1 0
+// expect: 9 false 1 1
+// expect: 16 true 2 0
+// Division and remainder by literals truncate toward zero for every sign, like Rust's `/` and `%`.
+let BIG: list[i64] = [-5000000000, -1000003, 1000002, 5000000000]
+let XS: list[i64] = [-1000, -15, -14, -8, -7, -6, -1, 0, 1, 6, 7, 8, 14, 15, 1000, 123456789]
+
+main() {
+    for x in XS {
+        print(x, x / 7, x % 7, x / -7, x % -7, x / 10, x % 10, x / -1000003, x % -1000003)
+    }
+    for n in BIG {
+        print(n, n / -1000003, n % -1000003)
+    }
+    for x in [-9, -8, -3, -2, -1, 0, 1, 2, 3, 8, 9] {
+        print(x, x % 2 == 0, x % 2 != 0, x % 8 == 0)
+    }
+    for x in [-24, -17, -16, -8, -1, 0, 8, 9, 16] {
+        let small: int = x
+        print(small, small % 8 == 0, small / 8, small % 8)
+    }
+}
