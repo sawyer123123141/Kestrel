@@ -1,0 +1,97 @@
+// Rollback netcode for a two-player game whose `step` is deterministic: each player's game runs at
+// once on its own input and a guess for the other player's, and when the other's real input
+// arrives and the guess was wrong, it goes back to its snapshot of that frame and runs the frames
+// again. Both copies of the game end up the same, bit for bit, and their checksums prove it.
+//
+// A game is a struct that implements `Rollback`: its `step` is the whole simulation for one
+// frame, given both players' inputs in player order (`one` is player 1's on both machines). It
+// must be `pure`, and it can promise more on the method itself:
+//
+//     use rollback
+//     use { Input, Rollback, Session, new_session from rollback }
+//     struct Game: Rollback {
+//         ...
+//         @prove(deterministic, no_alloc)
+//         pure step(var self, one: Input, two: Input) { ... }
+//     }
+//     var s = new_session(new_game(SEED), me: 1, delay: 2)
+//
+// Each frame a game makes five calls: `remote(p)` for each packet that arrived from the other
+// player, `local(i)` with this player's input, `advance()`, then `outgoing()` for the packet to
+// send (made in the current arena: call it inside an `arena { }` or send it at once), and
+// `desync()` to hear about a difference. `s.game` is the present state, to draw. When the input
+// reads the present state (a bot), call `catch_up()` first, so it reads the corrected state.
+//
+// `me` is 2 for the second player and 1 for anything else. `delay` is frames of input delay,
+// from 0 to `MAX_DELAY` (others are clamped): this player's input is for frame `now + delay`, which
+// hides that many frames of latency, so there are fewer rollbacks; the first `delay` frames have
+// no button held on both machines. (A library can't yet stop a program with a message, so these
+// rules are kept rather than refused.)
+//
+// `desync()` gives the report once; Kestrel has no `if let`, so read it in a helper:
+//
+//     report(var s: Session[Game]) {
+//         let why = s.desync() else { return }
+//         print(why)
+//     }
+//
+// Two `Input`s are compared field by field: an axis that is NaN never matches, so it rolls back
+// every frame, and -0.0 matches 0.0. Neither matters for a `step` that doesn't tell them apart.
+
+// Snapshots kept, so a rollback goes at most 16 frames back.
+pub let RING = 16
+// Frames of inputs kept.
+pub let HIST = 64
+// A session 12 or more frames past the other player's newest known input waits a frame.
+pub let MAX_AHEAD = 12
+// Frames between checksums.
+pub let SUM_EVERY = 30
+// Inputs in each packet: the sender's last 8 frames, so a lost packet's inputs come with the next.
+pub let SENT = 8
+// The most frames of input delay.
+pub let MAX_DELAY = 8
+// Frames between a replay's checksums.
+pub let REPLAY_SUM_EVERY = 60
+
+// One player's input for one frame: the buttons held as bits, and an axis. `Input()` is no
+// button held.
+pub struct Input {
+    buttons: int = 0
+    x: float = 0
+    y: float = 0
+}
+
+// What a game implements: the whole simulation for one frame, given player 1's input and player 2's.
+pub interface Rollback {
+    pure step(var self, one: Input, two: Input)
+}
+
+// What a session sends the other player each frame (with `to_bytes`, over anything).
+pub struct Packet {
+    // The sending player, 1 or 2.
+    sender: int
+    // The frame of the sender's newest input: `inputs[SENT - 1]` is its input and `inputs[0]` the
+    // one 7 frames before it (no button held for frames before 0).
+    frame: int
+    inputs: [Input]
+    // The sender's newest checksum and its frame (0 before the first).
+    sum_frame: int
+    sum: i64
+}
+
+// A session for player `me` whose game starts as `start`, with `delay` frames of input delay.
+pub pure new_session[G: Rollback](start: G, me: int, delay: int) -> Session[G] {
+    var ring: list[G] = []
+    for k from 0 to RING {
+        ring.add(start)
+    }
+    var remote_at = array[int](HIST)
+    for k from 0 to HIST {
+        remote_at[k] = -1
+    }
+    Session(me: if me == 2 { 2 } else { 1 }, delay: clamp(delay, 0, MAX_DELAY), game: start, now: 0, ring: ring,
+        local_in: array[Input](HIST), remote_in: array[Input](HIST), guess: array[Input](HIST), remote_at: remote_at, known: 0,
+        last: Input(), last_at: -1, wrong: NONE, checked: 0, sum_frame: 0, sum: 0, mine: array[i64](SUMS),
+        mine_at: array[int](SUMS), theirs: array[i64](SUMS), theirs_at: array[int](SUMS), compared: 0, desync_at: -1,
+        desync_mine: 0, desync_theirs: 0, reported: false, rollbacks: 0, deepest: 0, waits: 0)
+}

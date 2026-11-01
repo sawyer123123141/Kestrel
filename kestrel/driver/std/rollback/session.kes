@@ -1,0 +1,243 @@
+// A session: one player's copy of a game, kept in step with the other player's over packets.
+//
+// A frame is confirmed when both players' inputs for every frame before it are known; its state is
+// then final, on both machines. Every `SUM_EVERY` confirmed frames each session takes the state's
+// checksum and sends it in its packets, and the two compare them: a difference means the game is
+// not deterministic, and `desync()` says where.
+//
+// Every ring here is made once by `new_session`, so a running session allocates nothing for a
+// game whose state is plain data (numbers, vectors, structs, an `Rng`). A game proves that with a
+// one-line wrapper: `@prove(deterministic, no_alloc) pure advance_peer(var p: Session[Game]) { p.advance() }`.
+
+// Checksums kept for comparing, ours and theirs.
+let SUMS = 8
+
+// No wrong guess waiting.
+let NONE = 2147483647
+
+pub struct Session[G: Rollback] {
+    // The player this session is, 1 or 2, and its frames of input delay.
+    me: int
+    delay: int
+    // The present: the state at the start of frame `now` (frames 0 to now - 1 have run).
+    game: G
+    now: int
+    // ring[f % RING] is the state at the start of frame f, for the last RING frames.
+    ring: list[G]
+    // This player's input for frame f is local_in[f % HIST].
+    local_in: [Input]
+    // The other player's input for frame f is remote_in[f % HIST] when remote_at[f % HIST] == f.
+    remote_in: [Input]
+    remote_at: [int]
+    // What was guessed for the other player's frame f, while it wasn't known.
+    guess: [Input]
+    // The other player's inputs are known for every frame before `known`.
+    known: int
+    // The newest input received, and its frame (-1 before the first): the guess for the rest.
+    last: Input
+    last_at: int
+    // The first frame run on a wrong guess, or NONE.
+    wrong: int
+    // Every frame up to `checked` has had its confirmed state looked at.
+    checked: int
+    // The newest checksum taken, and its frame (0 before the first): what packets send.
+    sum_frame: int
+    sum: i64
+    // Our checksums and theirs, each at (frame / SUM_EVERY) % SUMS with its frame.
+    mine: [i64]
+    mine_at: [int]
+    theirs: [i64]
+    theirs_at: [int]
+    // Every checksum up to this frame has matched.
+    compared: int
+    // The first checksum frame that differed (-1 none), both checksums, and whether `desync()`
+    // has given the report.
+    desync_at: int
+    desync_mine: i64
+    desync_theirs: i64
+    reported: bool
+    // Rollbacks made, the most frames one went back, and frames waited for the other player.
+    rollbacks: int
+    deepest: int
+    waits: int
+
+    // This player's input, for frame `now + delay`. A second call in one frame replaces the first.
+    @prove(deterministic)
+    pure local(var self, i: Input) {
+        self.local_in[(self.now + self.delay) % HIST] = i
+    }
+
+    // Takes in a packet from the other player, in any order, duplicates included: its inputs for
+    // frames not known yet, noting a wrong guess, and its newest checksum. It never rolls back by
+    // itself, so many packets in one frame cost one rollback. A packet from this player is ignored.
+    @prove(deterministic)
+    pure remote(var self, p: Packet) {
+        if p.sender == self.me {
+            return
+        }
+        for j from 0 to p.inputs.len {
+            let f = p.frame - p.inputs.len + 1 + j
+            // Frames already known (or before the first) and frames too far ahead are skipped.
+            if f >= self.known and f < self.known + HIST and self.remote_at[f % HIST] != f {
+                let k = f % HIST
+                let i = p.inputs[j]
+                self.remote_in[k] = i
+                self.remote_at[k] = f
+                if f > self.last_at {
+                    self.last = i
+                    self.last_at = f
+                }
+                // A frame already run on a guess, and the guess was wrong.
+                if f < self.now and not same(self.guess[k], i) {
+                    self.wrong = min(self.wrong, f)
+                }
+            }
+        }
+        while self.remote_at[self.known % HIST] == self.known {
+            self.known += 1
+        }
+        if p.sum_frame > 0 {
+            let k = (p.sum_frame / SUM_EVERY) % SUMS
+            self.theirs[k] = p.sum
+            self.theirs_at[k] = p.sum_frame
+        }
+    }
+
+    // Rolls back to the first frame run on a wrong guess, if one was, and runs the frames again up
+    // to the present. `advance` does this first; call it before `local` when the input reads the
+    // present state.
+    @prove(deterministic)
+    pure catch_up(var self) {
+        if self.wrong < self.now {
+            self.deepest = max(self.deepest, self.now - self.wrong)
+            self.rollbacks += 1
+            self.run_again(self.wrong)
+        }
+        self.wrong = NONE
+    }
+
+    // Goes back to frame f's snapshot and runs the frames again up to the present.
+    pure run_again(var self, f: int) {
+        let present = self.now
+        self.game = self.ring[f % RING]
+        self.now = f
+        while self.now < present {
+            self.run_frame()
+        }
+    }
+
+    // Runs the present frame, unless this session is `MAX_AHEAD` or more frames past the other
+    // player's newest known input: then it waits a frame, and this frame's `local` input is
+    // replaced by the next one. Then it takes the checksums of newly confirmed frames and compares
+    // them with the other player's.
+    @prove(deterministic)
+    pure advance(var self) {
+        self.catch_up()
+        if self.now - self.known >= MAX_AHEAD {
+            self.waits += 1
+        } else {
+            self.run_frame()
+            // A frame with no `local` call has no button held, not an input from HIST frames ago.
+            self.local_in[(self.now + self.delay) % HIST] = Input()
+        }
+        self.confirm()
+        self.compare()
+    }
+
+    // Runs one frame from the present, keeping its snapshot first. Storing into the ring reuses
+    // the slot's storage, so a plain state is copied without allocating.
+    pure run_frame(var self) {
+        let k = self.now % HIST
+        self.ring[self.now % RING] = self.game
+        let mine = self.local_in[k]
+        var theirs = self.remote_in[k]
+        if self.remote_at[k] != self.now {
+            // The other player's input isn't known: guess the newest one received.
+            theirs = if self.last_at >= 0 { self.last } else { Input() }
+            self.guess[k] = theirs
+        }
+        if self.me == 1 {
+            self.game.step(mine, theirs)
+        } else {
+            self.game.step(theirs, mine)
+        }
+        self.now += 1
+    }
+
+    // Takes the checksum of each newly confirmed frame that is a multiple of SUM_EVERY.
+    pure confirm(var self) {
+        let c = self.confirmed()
+        while self.checked < c {
+            self.checked += 1
+            let f = self.checked
+            if f % SUM_EVERY == 0 {
+                // The state is summed where it is: `checksum(if ...)` would copy it.
+                var s: i64 = 0
+                if f == self.now {
+                    s = checksum(self.game)
+                } else {
+                    s = checksum(self.ring[f % RING])
+                }
+                let k = (f / SUM_EVERY) % SUMS
+                self.mine[k] = s
+                self.mine_at[k] = f
+                self.sum = s
+                self.sum_frame = f
+            }
+        }
+    }
+
+    // Compares, in order, each next checksum frame both players have, until one differs.
+    pure compare(var self) {
+        var n = 0
+        while self.desync_at < 0 and n < SUMS {
+            let f = self.compared + SUM_EVERY
+            let k = (f / SUM_EVERY) % SUMS
+            if self.mine_at[k] != f or self.theirs_at[k] != f {
+                return
+            }
+            if self.mine[k] == self.theirs[k] {
+                self.compared = f
+            } else {
+                self.desync_at = f
+                self.desync_mine = self.mine[k]
+                self.desync_theirs = self.theirs[k]
+            }
+            n += 1
+        }
+    }
+
+    // The packet to send: this player's inputs up to the newest final one, and its newest
+    // checksum. Its inputs are allocated in the current arena: call it inside an `arena { }` or
+    // send it at once.
+    pure outgoing(self) -> Packet {
+        let frame = self.now - 1 + self.delay
+        var inputs = array[Input](SENT)
+        for j from 0 to SENT {
+            let f = frame - SENT + 1 + j
+            if f >= 0 {
+                inputs[j] = self.local_in[f % HIST]
+            }
+        }
+        Packet(sender: self.me, frame: frame, inputs: inputs, sum_frame: self.sum_frame, sum: self.sum)
+    }
+
+    // The newest confirmed frame: both inputs are known for every frame before it, and it has run.
+    pure confirmed(self) -> int {
+        min(self.known, self.now)
+    }
+
+    // Once, after the first checksum that differs: where, and both checksums. `none` before and after.
+    desync(var self) -> string? {
+        if self.desync_at < 0 or self.reported {
+            return none
+        }
+        self.reported = true
+        "desync at frame {self.desync_at}: my checksum {self.desync_mine}, theirs {self.desync_theirs}"
+    }
+}
+
+// Whether two inputs are the same, field by field.
+pure same(a: Input, b: Input) -> bool {
+    a.buttons == b.buttons and a.x == b.x and a.y == b.y
+}

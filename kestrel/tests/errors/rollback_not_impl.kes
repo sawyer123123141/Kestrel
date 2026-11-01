@@ -1,0 +1,10 @@
+// A session's game must implement `rollback.Rollback`.
+use { new_session from rollback }
+struct Thing {
+    x: int
+}
+main() {
+    var s = new_session(Thing(x: 1), me: 1, delay: 0)
+    s.advance()
+}
+// error 7: `Thing` isn't `rollback.Rollback`, so it can't be `G` in `rollback.new_session`

@@ -1,0 +1,108 @@
+// Input delay in the rollback library: each packet arrives 2 frames after it is sent. With no
+// delay every frame runs on a guess for 2 frames, so the sessions roll back; with a delay of 2 an
+// input lands 2 frames after it is pressed, the other player's input is known before its frame
+// runs, and nothing rolls back. The first 2 frames then have no button held on both sessions.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+// The buttons each player presses on each tick.
+in1(t: int) -> Input {
+    Input(buttons: t % 3)
+}
+
+in2(t: int) -> Input {
+    Input(buttons: (t / 10) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+// The state at the start of frame `frames`, run straight: frame f has the input pressed `delay`
+// ticks before it, and no button held before that.
+straight(frames: int, delay: int) -> Tally {
+    var g = start()
+    for f from 0 to frames {
+        if f < delay {
+            g.step(Input(), Input())
+        } else {
+            g.step(in1(f - delay), in2(f - delay))
+        }
+    }
+    g
+}
+
+confirmed_sum(s: Session[Tally]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+run(delay: int) {
+    var p1 = new_session(start(), me: 1, delay: delay)
+    var p2 = new_session(start(), me: 2, delay: delay)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 60 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        send(var to2, p1.outgoing(), tick + 2)
+        send(var to1, p2.outgoing(), tick + 2)
+    }
+    print("delay {delay}: rollbacks {p1.rollbacks} {p2.rollbacks} deepest {p1.deepest} {p2.deepest} confirmed {p1.confirmed()} {p2.confirmed()}")
+    print("delay {delay}: totals {p1.game.one} {p1.game.two} and {p2.game.one} {p2.game.two}")
+    let truth = checksum(straight(p1.confirmed(), delay))
+    print("delay {delay}: confirmed states are the straight run's: {confirmed_sum(p1) == truth} {confirmed_sum(p2) == truth}")
+}
+
+main() {
+    run(0)
+    run(2)
+    // A delay past MAX_DELAY is clamped to it, and one below 0 to 0.
+    let far = new_session(start(), me: 1, delay: 20)
+    let near = new_session(start(), me: 7, delay: -3)
+    print("clamped: {far.delay} {near.delay} {near.me}")
+}
+// expect: delay 0: rollbacks 5 57 deepest 2 2 confirmed 58 58
+// expect: delay 0: totals 60 30 and 57 30
+// expect: delay 0: confirmed states are the straight run's: true true
+// expect: delay 2: rollbacks 0 0 deepest 0 0 confirmed 60 60
+// expect: delay 2: totals 57 28 and 57 28
+// expect: delay 2: confirmed states are the straight run's: true true
+// expect: clamped: 8 0 1

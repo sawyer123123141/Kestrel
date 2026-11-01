@@ -1,0 +1,93 @@
+// Waiting in the rollback library: no packet arrives in either direction from frame 11 to 29 (they
+// all arrive at frame 30). Each session runs on until it is 12 frames past the other player's
+// newest known input, at frame 22, then waits a frame at a time (8 waits) and goes on when the
+// packets arrive.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+straight(frames: int) -> Tally {
+    var g = start()
+    for f from 0 to frames {
+        g.step(Input(buttons: 1), Input(buttons: 2))
+    }
+    g
+}
+
+confirmed_sum(s: Session[Tally]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+main() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    var gap1 = 0
+    var gap2 = 0
+    for tick from 0 to 60 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(Input(buttons: 1))
+        p1.advance()
+        p2.local(Input(buttons: 2))
+        p2.advance()
+        gap1 = max(gap1, p1.now - p1.known)
+        gap2 = max(gap2, p2.now - p2.known)
+        let due = if tick >= 10 and tick < 29 { 30 } else { tick + 1 }
+        send(var to2, p1.outgoing(), due)
+        send(var to1, p2.outgoing(), due)
+        if tick == 29 {
+            print("stalled at frame {p1.now} {p2.now}, waits {p1.waits} {p2.waits}")
+        }
+    }
+    print("largest gap {gap1} {gap2}")
+    print("waits {p1.waits} {p2.waits} rollbacks {p1.rollbacks} {p2.rollbacks}")
+    print("now {p1.now} {p2.now} confirmed {p1.confirmed()} {p2.confirmed()} compared {p1.compared} {p2.compared}")
+    print("totals {p1.game.one} {p1.game.two} and {p2.game.one} {p2.game.two}")
+    let truth = checksum(straight(p1.confirmed()))
+    print("confirmed states are the straight run's: {confirmed_sum(p1) == truth} {confirmed_sum(p2) == truth}")
+}
+// expect: stalled at frame 22 22, waits 8 8
+// expect: largest gap 12 12
+// expect: waits 8 8 rollbacks 1 1
+// expect: now 52 52 confirmed 51 51 compared 30 30
+// expect: totals 52 104 and 52 104
+// expect: confirmed states are the straight run's: true true

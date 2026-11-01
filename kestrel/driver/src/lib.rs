@@ -138,7 +138,7 @@ pub fn compile_as_reading(path: &str, src: &str, style: DiagStyle, needs_main: b
 }
 
 fn compile_reading(path: &str, src: &str, style: DiagStyle, needs_main: bool, read: Read) -> (Option<Compiled>, String) {
-    let Loaded { files, modules, mut diags, missing, builtins } = load(path, src, read);
+    let Loaded { files, modules, mut diags, missing, builtins, .. } = load(path, src, read);
     if diags.iter().any(Diagnostic::is_error) {
         return (None, report(&files, &diags, style));
     }

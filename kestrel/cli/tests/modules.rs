@@ -166,11 +166,15 @@ main() {
 
 #[test]
 fn a_file_named_like_a_built_in_module_is_refused() {
-    let dir = project("modules_shadow", &[("main.kes", "use draw\nmain() {}\n"), ("draw.kes", "pub f() -> int { 1 }\n")]);
-    let out = kestrel(&["check", "--diagnostics=short"], &dir.join("main.kes"));
-    assert_eq!(out.status.code(), Some(1));
-    let err = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
-    assert_eq!(err, "1:5: error: `draw` is a built-in module, so draw.kes can't be used as a module; rename the file\n");
+    // `rollback` is a built-in module of several files.
+    for m in ["draw", "rollback"] {
+        let (main, file) = (format!("use {m}\nmain() {{}}\n"), format!("{m}.kes"));
+        let dir = project(&format!("modules_shadow_{m}"), &[("main.kes", &main), (&file, "pub f() -> int { 1 }\n")]);
+        let out = kestrel(&["check", "--diagnostics=short"], &dir.join("main.kes"));
+        assert_eq!(out.status.code(), Some(1));
+        let err = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
+        assert_eq!(err, format!("1:5: error: `{m}` is a built-in module, so {m}.kes can't be used as a module; rename the file\n"));
+    }
 }
 
 #[test]
@@ -206,6 +210,7 @@ fn the_built_in_modules_check() {
     let main = "use window
 use draw
 use input
+use rollback
 use { Color from draw }
 let BG = draw.BLACK
 let ACCENT = Color(1, 0.5, 0)
@@ -221,6 +226,7 @@ main() {
         let dx = input.axis(input.Key.Left, input.Key.Right)
         draw.circle(input.mouse() + vec2(dx, 0), 5, draw.TRANSPARENT)
     }
+    print(rollback.Input(buttons: rollback.SENT))
 }
 ";
     let dir = project("modules_builtin_check", &[("main.kes", main)]);

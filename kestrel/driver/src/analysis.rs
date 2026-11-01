@@ -13,11 +13,12 @@ pub struct Analysis {
     /// The entry file first, then each module it uses (built-in ones included).
     pub sources: Vec<Source>,
     /// Each module's `use` declarations, by module, the entry file's first (linking drops them
-    /// from `program`). A module is one source today; a built-in module of several parts would be
-    /// one module of several sources.
+    /// from `program`). A module is one source, except a built-in module of several parts (like
+    /// `rollback`), which is one module of several sources.
     pub uses: Vec<Vec<UseDecl>>,
     /// The module each `use` clause names, by module in the order the clauses are written (see
-    /// `kestrel_syntax::link::Module::resolved`); a module is the source of the same index.
+    /// `kestrel_syntax::link::Module::resolved`), as the index of its source (for a built-in
+    /// module of several parts, its first part's).
     pub resolved: Vec<Vec<Option<usize>>>,
     /// The linked program, when every file parsed.
     pub program: Option<Program>,
@@ -40,9 +41,9 @@ impl Analysis {
 /// the modules it uses with `read`. Each stage runs only when the one before it found no error,
 /// as for `kestrel check`. With `needs_main` false the entry file is checked as a module.
 pub fn analyze(path: &str, src: &str, needs_main: bool, read: Read) -> Analysis {
-    let Loaded { files, modules, mut diags, missing, .. } = load(path, src, read);
+    let Loaded { files, modules, first_file, mut diags, missing, .. } = load(path, src, read);
     let uses = modules.iter().map(|m| use_decls(&m.program)).collect();
-    let resolved = modules.iter().map(|m| m.resolved.clone()).collect();
+    let resolved = modules.iter().map(|m| m.resolved.iter().map(|r| r.map(|m| first_file[m])).collect()).collect();
     if diags.iter().any(Diagnostic::is_error) {
         return Analysis { sources: files, uses, resolved, program: None, tables: None, diags };
     }

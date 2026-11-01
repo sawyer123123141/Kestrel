@@ -1,0 +1,93 @@
+// A game whose state holds a list, in the rollback library: each frame adds both players' inputs to
+// the list, and every rollback restores the list as it was. Packets arrive 3 frames after they are
+// sent. Session 2's last 3 frames ran on its guess (no button) for player 1; session 1's guess for
+// player 2 was right.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+
+struct Log: Rollback {
+    xs: list[int]
+
+    @prove(deterministic)
+    pure step(var self, one: Input, two: Input) {
+        self.xs.add(one.buttons * 10 + two.buttons)
+    }
+}
+
+start() -> Log {
+    Log(xs: [])
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 5) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Log], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+straight(frames: int) -> Log {
+    var g = start()
+    for f from 0 to frames {
+        g.step(in1(f), in2(f))
+    }
+    g
+}
+
+confirmed_sum(s: Session[Log]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+main() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 40 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        send(var to2, p1.outgoing(), tick + 3)
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    print("rollbacks {p1.rollbacks} {p2.rollbacks} deepest {p1.deepest} {p2.deepest} confirmed {p1.confirmed()} {p2.confirmed()}")
+    print("lengths {p1.game.xs.len} {p2.game.xs.len}")
+    for f from 35 to 40 {
+        print("{f}: {p1.game.xs[f]} {p2.game.xs[f]}")
+    }
+    let c = p1.confirmed()
+    print("confirmed lengths {p1.ring[c % rollback.RING].xs.len} {p2.ring[c % rollback.RING].xs.len}")
+    let truth = checksum(straight(c))
+    print("confirmed states are the straight run's: {confirmed_sum(p1) == truth} {confirmed_sum(p2) == truth}")
+}
+// expect: rollbacks 7 36 deepest 3 3 confirmed 37 37
+// expect: lengths 40 40
+// expect: 35: 21 21
+// expect: 36: 1 1
+// expect: 37: 11 1
+// expect: 38: 21 1
+// expect: 39: 1 1
+// expect: confirmed lengths 37 37
+// expect: confirmed states are the straight run's: true true

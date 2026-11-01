@@ -1,0 +1,102 @@
+// The rollback library over a perfect wire, carried by hand: each packet arrives 3 frames after
+// it is sent. Player 1's input changes every frame and player 2's every 10, so session 2 rolls back
+// 3 frames on almost every frame and session 1 once per change. Both end with the same confirmed
+// state as a straight run given every input, and their checksums agree up to frame 120.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+use { Rng from random }
+
+// A tiny game: the totals of both players' buttons, and a random number drawn each frame, so a
+// rollback must restore the `Rng` too.
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+// Packets on their way to one session, each with the frame it arrives on.
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+// The state at the start of frame `frames`, run straight with every input known.
+straight(frames: int) -> Tally {
+    var g = start()
+    for f from 0 to frames {
+        g.step(in1(f), in2(f))
+    }
+    g
+}
+
+// The checksum of a session's newest confirmed state.
+confirmed_sum(s: Session[Tally]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+show(name: string, s: Session[Tally]) {
+    print("{name}: now {s.now} confirmed {s.confirmed()} rollbacks {s.rollbacks} deepest {s.deepest} waits {s.waits}")
+    print("{name}: compared {s.compared} sum frame {s.sum_frame} desync at {s.desync_at} totals {s.game.one} {s.game.two}")
+    print("{name}: confirmed state is the straight run's: {confirmed_sum(s) == checksum(straight(s.confirmed()))}")
+}
+
+main() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 130 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        send(var to2, p1.outgoing(), tick + 3)
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    show("p1", p1)
+    show("p2", p2)
+    print("same checksum: {p1.sum == p2.sum}")
+}
+// expect: p1: now 130 confirmed 127 rollbacks 12 deepest 3 waits 0
+// expect: p1: compared 120 sum frame 120 desync at -1 totals 129 60
+// expect: p1: confirmed state is the straight run's: true
+// expect: p2: now 130 confirmed 127 rollbacks 126 deepest 3 waits 0
+// expect: p2: compared 120 sum frame 120 desync at -1 totals 126 60
+// expect: p2: confirmed state is the straight run's: true
+// expect: same checksum: true

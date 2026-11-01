@@ -1,0 +1,100 @@
+// A deep rollback in the rollback library: player 2 starts pressing 3 at frame 20, and its packets
+// from frames 20 to 26 are held back until frame 28. Session 1 runs frames 20 to 27 on its guess
+// (no button), then learns all 8 at once and rolls back 8 frames. It ends with the same state as a
+// run whose packets all arrived on time (1 frame each), and as a straight run.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: 1)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: if f < 20 { 0 } else { 3 })
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+straight(frames: int) -> Tally {
+    var g = start()
+    for f from 0 to frames {
+        g.step(in1(f), in2(f))
+    }
+    g
+}
+
+confirmed_sum(s: Session[Tally]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+// Runs 60 frames, holding back player 2's packets of frames 20 to 26 when `hold`, and gives
+// session 1's confirmed checksum.
+run(name: string, hold: bool) -> i64 {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 60 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        send(var to2, p1.outgoing(), tick + 1)
+        send(var to1, p2.outgoing(), if hold and tick >= 20 and tick < 27 { 28 } else { tick + 1 })
+    }
+    print("{name}: rollbacks {p1.rollbacks} {p2.rollbacks} deepest {p1.deepest} {p2.deepest} confirmed {p1.confirmed()} {p2.confirmed()}")
+    print("{name}: totals {p1.game.one} {p1.game.two} and {p2.game.one} {p2.game.two}")
+    print("{name}: confirmed checksums agree: {confirmed_sum(p1) == confirmed_sum(p2)}")
+    confirmed_sum(p1)
+}
+
+main() {
+    let held = run("held back", true)
+    let on_time = run("on time", false)
+    print("same final state: {held == on_time} {held == checksum(straight(59))}")
+}
+// expect: held back: rollbacks 1 1 deepest 8 1 confirmed 59 59
+// expect: held back: totals 60 120 and 60 120
+// expect: held back: confirmed checksums agree: true
+// expect: on time: rollbacks 1 1 deepest 1 1 confirmed 59 59
+// expect: on time: totals 60 120 and 60 120
+// expect: on time: confirmed checksums agree: true
+// expect: same final state: true true

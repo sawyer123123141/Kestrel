@@ -1,0 +1,10 @@
+// A game's `step` must be `pure`, as the interface says.
+use { Input, Rollback from rollback }
+struct Game: Rollback {
+    x: int
+    step(var self, one: Input, two: Input) {
+        self.x += one.buttons + two.buttons
+    }
+}
+main() {}
+// error 5: `Game.step` doesn't match `rollback.Rollback.step`: it should be `pure step(var self, one: rollback.Input, two: rollback.Input)`

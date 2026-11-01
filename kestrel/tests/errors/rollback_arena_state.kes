@@ -1,0 +1,11 @@
+// A state that owns an `Arena` can't be a session's game yet.
+use { Input, Rollback, new_session from rollback }
+struct World: Rollback {
+    mem: Arena
+    pure step(var self, one: Input, two: Input) {}
+}
+main() {
+    var s = new_session(World(mem: Arena()), me: 1, delay: 0)
+    s.advance()
+}
+// error 8: `World` owns an `Arena`, so it can't be `G` yet
