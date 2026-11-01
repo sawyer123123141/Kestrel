@@ -1,7 +1,7 @@
-//! `sort` and `sort_by`: `ListOp::Sort` with a generated compare function (`sort`, and `sort_by`
-//! with a string key) or `ListOp::SortBy` with a generated key function (a number or bool key), a
-//! call site that passes a literal key as a stack environment, and a scratch arena around the keys
-//! only when they can build memory.
+//! `sort` and `sort_by`: `ListOp::Sort` with a generated compare function (strings, and `sort_by`
+//! with a string key) or `ListOp::SortBy` with a generated fill function (numbers and bools, and a
+//! number or bool key), a call site that passes a literal key as a stack environment, and a scratch
+//! arena around each key only when it can build memory.
 
 use kestrel_kir::*;
 use kestrel_syntax::{parse, LineIndex};
@@ -27,6 +27,35 @@ fn arenas(f: &Func) -> Vec<&Stmt> {
     f.body.iter().filter(|s| matches!(s, Stmt::PushArena(..) | Stmt::PopArena { .. })).collect()
 }
 
+/// The body of the loop of fill function `f`, its only statement.
+fn fill_loop(f: &Func) -> &[Stmt] {
+    match f.body.as_slice() {
+        [Stmt::ForRange { body, .. }] => body,
+        other => panic!("a fill function is one loop: {other:?}"),
+    }
+}
+
+/// The statements of fill function `f`'s loop that open or close an arena.
+fn loop_arenas(f: &Func) -> Vec<&Stmt> {
+    fill_loop(f).iter().filter(|s| matches!(s, Stmt::PushArena(..) | Stmt::PopArena { .. })).collect()
+}
+
+/// Checks the shape of fill function `k`: `(env, xs, keys)`, `xs` and `keys` by pointer, `keys`
+/// an array of `i64` or `f64`, pure, no result; its loop ends by writing the key. Returns that
+/// key's value.
+fn fill_shape<'f>(m: &Module, k: &'f Func) -> &'f Expr {
+    assert_eq!(k.params.len(), 3);
+    assert_eq!([k.locals[1].kind, k.locals[2].kind], [LocalKind::RefParam; 2]);
+    assert!(k.is_pure);
+    assert_eq!(k.ret, None);
+    let KTy::Array(e) = k.locals[2].ty else { panic!("{k:?}") };
+    assert!(matches!(m.elems[e.0 as usize], KTy::I64 | KTy::F64));
+    let Some(Stmt::Assign(p, v)) = fill_loop(k).last() else { panic!("{k:?}") };
+    assert_eq!(p.root, LocalIdx(2));
+    assert_eq!(Some(v.ty), Some(m.elems[e.0 as usize]));
+    v
+}
+
 fn sorts(f: &Func) -> Vec<usize> {
     let mut out = Vec::new();
     visit::walk(&f.body, &mut |n| {
@@ -47,20 +76,23 @@ pure shout(e: E) -> int { e.name.upper().len }
 ";
 
 #[test]
-fn sort_is_one_runtime_sort_with_a_compare_function_per_item_type() {
+fn sort_is_one_runtime_sort_with_a_compare_or_fill_function_per_type() {
     let m = lower_src("main() {
     var xs: list[int] = [3, 1]
     var ys: list[int] = [2, 1]
     var ws: list[string] = [\"b\", \"a\"]
+    var fs: list[float] = [2.0, 1.0]
     xs.sort()
     ys.sort()
     ws.sort()
+    fs.sort()
 }
 ");
-    // Two item types, so two compare functions; the two int lists share one.
+    // Strings have a compare function; numbers a fill function per list type, which the two int
+    // lists share.
     let compares = named(&m, "__kestrel_compare_");
-    assert_eq!(compares.len(), 2);
-    assert_eq!(sorts(func(&m, "main")), vec![1, 1, 1]);
+    assert_eq!(compares.len(), 1);
+    assert_eq!(sorts(func(&m, "main")), vec![1, 1, 1, 1]);
     for c in compares {
         // (env, a, b) -> u8, a and b by pointer; nothing to free.
         assert_eq!(c.params.len(), 3);
@@ -69,6 +101,20 @@ fn sort_is_one_runtime_sort_with_a_compare_function_per_item_type() {
         assert!(arenas(c).is_empty());
         assert!(c.is_pure);
     }
+    let fills = named(&m, "__kestrel_sort_key_");
+    assert_eq!(fills.len(), 2);
+    for f in fills {
+        // The item itself, widened: an `int` converted, a `float` too.
+        assert!(matches!(fill_shape(&m, f).kind, ExprKind::Cast(_)));
+        assert!(loop_arenas(f).is_empty());
+    }
+    let mut ops = Vec::new();
+    visit::walk(&func(&m, "main").body, &mut |n| {
+        if let visit::Node::Stmt(Stmt::List(op, _, _)) = n {
+            ops.push(*op);
+        }
+    });
+    assert_eq!(ops, [ListOp::SortBy(SortKey::Int), ListOp::SortBy(SortKey::Int), ListOp::Sort, ListOp::SortBy(SortKey::Float)]);
     assert_eq!(check_stack_envs(&m), Ok(()));
 }
 
@@ -85,7 +131,7 @@ fn a_literal_key_is_a_stack_environment_passed_straight_to_the_sorting_function(
     assert_eq!(check_stack_envs(&m), Ok(()));
     let calls = named(&m, "__kestrel_sort_by_");
     assert_eq!(calls.len(), 1);
-    assert_eq!(sorts(calls[0]), vec![2], "the key function, then the key to pass on by address");
+    assert_eq!(sorts(calls[0]), vec![2], "the fill function, then the key to pass on by address");
     // `main` calls it with the list by reference and the literal itself.
     let mut found = false;
     visit::walk(&func(&m, "main").body, &mut |n| {
@@ -117,7 +163,7 @@ pure hp(e: E) -> int {{ e.hp }}
     let keys = named(&m, "__kestrel_sort_key_");
     assert_eq!(keys.len(), 3);
     for c in keys {
-        assert!(arenas(c).is_empty(), "{c:?}");
+        assert!(loop_arenas(c).is_empty(), "{c:?}");
     }
 }
 
@@ -137,20 +183,23 @@ fn a_key_that_builds_strings_is_run_in_a_scratch_arena_freed_before_the_answer()
     // The first builds a string itself (a string key: a compare function), the second calls a
     // function that does, the third is a named function that does, and the fourth is a stored
     // closure (anything may be inside it, so it keeps the arena even though this one builds
-    // nothing); those three have number keys, so key functions.
+    // nothing); those three have number keys, so fill functions.
     let compares = named(&m, "__kestrel_compare_");
     assert_eq!(compares.len(), 1);
     let keys = named(&m, "__kestrel_sort_key_");
     assert_eq!(keys.len(), 3);
-    for c in compares.into_iter().chain(keys) {
-        let a = arenas(c);
-        assert_eq!(a.len(), 2, "{c:?}");
-        assert!(matches!(a[0], Stmt::PushArena(None, _)));
-        assert!(matches!(a[1], Stmt::PopArena { free: true }));
-        // The arena is open first and closed just before the answer is returned.
-        assert!(matches!(c.body.first(), Some(Stmt::PushArena(None, _))));
-        assert!(matches!(&c.body[c.body.len() - 2], Stmt::PopArena { free: true }));
-        assert!(matches!(c.body.last(), Some(Stmt::Return(Some(_)))));
+    // A compare function's arena is open first and closed just before the answer is returned; a
+    // fill function's is open first in each turn of the loop once the item is bound, and closed
+    // before the key is written.
+    for (body, last) in compares.iter().map(|c| (c.body.as_slice(), "answer")).chain(keys.iter().map(|k| (&fill_loop(k)[1..], "key"))) {
+        let a: Vec<&Stmt> = body.iter().filter(|s| matches!(s, Stmt::PushArena(..) | Stmt::PopArena { .. })).collect();
+        assert_eq!(a.len(), 2, "{body:?}");
+        assert!(matches!(body.first(), Some(Stmt::PushArena(None, _))));
+        assert!(matches!(&body[body.len() - 2], Stmt::PopArena { free: true }));
+        match last {
+            "answer" => assert!(matches!(body.last(), Some(Stmt::Return(Some(_))))),
+            _ => assert!(matches!(body.last(), Some(Stmt::Assign(..)))),
+        }
     }
 }
 
@@ -176,7 +225,7 @@ fn a_function_value_key_is_called_indirectly_and_a_literal_directly() {
         counts.push((direct, indirect));
     }
     counts.sort();
-    // One call each: the key function keys one item.
+    // One call each, in the loop over the items.
     assert_eq!(counts, vec![(0, 1), (1, 0)]);
 }
 
@@ -194,7 +243,7 @@ fn sort_ops(m: &Module) -> Vec<ListOp> {
 }
 
 #[test]
-fn a_number_or_bool_key_is_a_key_function_and_a_string_key_a_compare_function() {
+fn a_number_or_bool_key_is_a_fill_function_and_a_string_key_a_compare_function() {
     let m = lower_src(&format!(
         "{PRELUDE}main() {{
     var es: list[E] = []
@@ -214,16 +263,11 @@ fn a_number_or_bool_key_is_a_key_function_and_a_string_key_a_compare_function() 
     let keys = named(&m, "__kestrel_sort_key_");
     assert_eq!(keys.len(), 6);
     for k in &keys {
-        // (env, a) -> i64 or f64, `a` by pointer, pure.
-        assert_eq!(k.params.len(), 2);
-        assert_eq!(k.locals[1].kind, LocalKind::RefParam);
-        assert!(k.is_pure);
-        let Some(Stmt::Return(Some(v))) = k.body.last() else { panic!("{k:?}") };
-        assert_eq!(Some(v.ty), k.ret);
-        let wide = if k.locals[2].ty.is_float() { KTy::F64 } else { KTy::I64 };
-        assert_eq!(k.ret, Some(wide), "{k:?}");
+        let v = fill_shape(&m, k);
+        let wide = if k.locals[4].ty.is_float() { KTy::F64 } else { KTy::I64 };
+        assert_eq!(v.ty, wide, "{k:?}");
         // A bool key is 0 or 1; a narrower number is converted; an `i64` or `f64` is as it is.
-        match k.locals[2].ty {
+        match k.locals[4].ty {
             KTy::Bool => assert!(matches!(v.kind, ExprKind::If { .. }), "{v:?}"),
             KTy::I64 | KTy::F64 => assert!(matches!(v.kind, ExprKind::Load(_)), "{v:?}"),
             _ => assert!(matches!(v.kind, ExprKind::Cast(_)), "{v:?}"),

@@ -1,18 +1,29 @@
-//! The scratch arena of `sort_by`'s compare and key functions: taken out again when the key can't
-//! build memory (see `sort`).
+//! The scratch arenas of `sort_by`'s compare and fill functions: taken out again when the key
+//! can't build memory (see `sort`).
 
 use std::collections::HashSet;
 
 use crate::ir::*;
 use crate::visit::{walk, Node};
 
-/// Takes the scratch arena out of each `sort_by` compare or key function whose key, a literal or a
-/// named function, can't build anything: `idle` pairs a compare or key function with the code it
-/// calls (the literal's code, or the function's thunk).
+/// Takes the scratch arenas out of each `sort_by` compare or fill function whose key, a literal or
+/// a named function, can't build anything: `idle` pairs a compare or fill function with the code
+/// it calls (the literal's code, or the function's thunk).
 pub(super) fn strip_idle_scratch(funcs: &mut [Func], idle: &[(FuncIdx, FuncIdx)]) {
     for &(compare, code) in idle {
         if !builds_memory(funcs, code, &mut HashSet::new()) {
-            funcs[compare.0 as usize].body.retain(|s| !matches!(s, Stmt::PushArena(None, _) | Stmt::PopArena { .. }));
+            strip(&mut funcs[compare.0 as usize].body);
+        }
+    }
+}
+
+/// Takes the scratch arenas out of `body`: a compare function's around its body, a fill
+/// function's inside its loop.
+fn strip(body: &mut Vec<Stmt>) {
+    body.retain(|s| !matches!(s, Stmt::PushArena(None, _) | Stmt::PopArena { .. }));
+    for s in body {
+        if let Stmt::ForRange { body, .. } = s {
+            strip(body);
         }
     }
 }

@@ -27,9 +27,9 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             return Ok(());
         }
         match op {
-            kir::ListOp::Sort => return self.sort_items(list, args, size, self.shared.rt.sort),
-            kir::ListOp::SortBy(kir::SortKey::Int) => return self.sort_items(list, args, size, self.shared.rt.sort_by_int),
-            kir::ListOp::SortBy(kir::SortKey::Float) => return self.sort_items(list, args, size, self.shared.rt.sort_by_float),
+            kir::ListOp::Sort => return self.sort_items(list, args, size, self.shared.rt.sort, false),
+            kir::ListOp::SortBy(kir::SortKey::Int) => return self.sort_items(list, args, size, self.shared.rt.sort_keyed_int, true),
+            kir::ListOp::SortBy(kir::SortKey::Float) => return self.sort_items(list, args, size, self.shared.rt.sort_keyed_float, true),
             _ => {}
         }
         if op == kir::ListOp::Compact {
@@ -79,10 +79,10 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
     }
 
     /// `Sort` and `SortBy`: the runtime function `sort` sorts the items in place by the generated
-    /// compare or key function `args[0]`, which gets as its environment word the address of a copy
+    /// compare or fill function `args[0]`, which gets as its environment word the address of a copy
     /// of the function value `args[1]` (kept in this function's frame until the sort is done), or 0
-    /// without one.
-    fn sort_items(&mut self, list: &Place, args: &[kir::Expr], size: i64, sort: FuncId) -> Result<(), String> {
+    /// without one. A fill function (`keyed`) also gets the list's address.
+    fn sort_items(&mut self, list: &Place, args: &[kir::Expr], size: i64, sort: FuncId, keyed: bool) -> Result<(), String> {
         let ExprKind::FnRef(compare) = &args[0].kind else { unreachable!("the compare or key function is a `FnRef`") };
         let compare = self.func_address(*compare);
         let env = match args.get(1) {
@@ -97,7 +97,11 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         let items = self.b.ins().load(self.ptr, MemFlagsData::trusted(), header, 0);
         let len = self.b.ins().load(types::I64, MemFlagsData::trusted(), header, LEN);
         let size = self.b.ins().iconst(types::I64, size);
-        self.call_id(sort, &[items, len, size, compare, env]);
+        if keyed {
+            self.call_id(sort, &[items, len, size, compare, env, header]);
+        } else {
+            self.call_id(sort, &[items, len, size, compare, env]);
+        }
         Ok(())
     }
 

@@ -1,0 +1,20 @@
+// expect: sorting
+// expect-exit: 101
+// expect-stderr: index 5 out of bounds for length 3 on line 18
+// A `sort_by` key runs once per item, in item order, before anything moves: the first item whose
+// key fails stops the program, with its own index.
+struct It {
+    at: int
+    id: int
+}
+
+main() {
+    let lookup = [10, 20, 30]
+    var xs = list[It]()
+    for at in [2, 0, 5, 1, 7, 3] {
+        xs.add(It(at: at, id: xs.len))
+    }
+    print("sorting")
+    xs.sort_by((e) { lookup[e.at] })
+    print("not reached")
+}

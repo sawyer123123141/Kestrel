@@ -62,12 +62,8 @@ pub(crate) struct RtFuncs {
     pub str_to_float: FuncId,
     pub par_for: FuncId,
     pub sort: FuncId,
-    pub sort_by_int: FuncId,
-    pub sort_by_float: FuncId,
-    /// The keyed sorts of spec decision 8 (`sort_by` with keys computed once).
-    #[expect(dead_code, reason = "decision 8 calls these; remove this then")]
+    /// The sorts by number keys that a generated fill function writes (`ListOp::SortBy`).
     pub sort_keyed_int: FuncId,
-    #[expect(dead_code, reason = "decision 8 calls these; remove this then")]
     pub sort_keyed_float: FuncId,
     /// The function for each float operation the runtime does (see `MATH`).
     pub math: Vec<(MathOp, FuncId)>,
@@ -165,10 +161,8 @@ impl RtFuncs {
             str_to_float: decl("kestrel_rt_str_to_float", &[ptr, I64, ptr], Some(I8))?,
             par_for: decl("kestrel_rt_par_for", &[I64, ptr, ptr], None)?,
             sort: decl("kestrel_rt_sort", &[ptr, I64, I64, ptr, ptr], None)?,
-            sort_by_int: decl("kestrel_rt_sort_by_int", &[ptr, I64, I64, ptr, ptr], None)?,
-            sort_by_float: decl("kestrel_rt_sort_by_float", &[ptr, I64, I64, ptr, ptr], None)?,
-            sort_keyed_int: decl("kestrel_rt_sort_keyed_int", &[ptr, I64, I64, ptr], None)?,
-            sort_keyed_float: decl("kestrel_rt_sort_keyed_float", &[ptr, I64, I64, ptr], None)?,
+            sort_keyed_int: decl("kestrel_rt_sort_keyed_int", &[ptr, I64, I64, ptr, ptr, ptr], None)?,
+            sort_keyed_float: decl("kestrel_rt_sort_keyed_float", &[ptr, I64, I64, ptr, ptr, ptr], None)?,
             math: MATH.iter().map(|&(op, name, args)| Ok((op, decl(name, &[F64, F64][..args], Some(F64))?))).collect::<Result<_, String>>()?,
             mathf: MATHF.iter().map(|&(op, name, args)| Ok((op, decl(name, &[F32, F32][..args], Some(F32))?))).collect::<Result<_, String>>()?,
             rand_float: decl("kestrel_rt_rand_float", &[], Some(F64))?,
@@ -275,8 +269,6 @@ pub(crate) fn jit_symbols() -> Vec<(&'static str, *const u8)> {
         ("kestrel_rt_str_to_float", string_parse::kestrel_rt_str_to_float as *const u8),
         ("kestrel_rt_par_for", par::kestrel_rt_par_for as *const u8),
         ("kestrel_rt_sort", sort::kestrel_rt_sort as *const u8),
-        ("kestrel_rt_sort_by_int", sort::kestrel_rt_sort_by_int as *const u8),
-        ("kestrel_rt_sort_by_float", sort::kestrel_rt_sort_by_float as *const u8),
         ("kestrel_rt_sort_keyed_int", sort::kestrel_rt_sort_keyed_int as *const u8),
         ("kestrel_rt_sort_keyed_float", sort::kestrel_rt_sort_keyed_float as *const u8),
         ("kestrel_rt_sin", math::kestrel_rt_sin as *const u8),

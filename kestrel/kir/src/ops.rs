@@ -62,17 +62,19 @@ pub enum ListOp {
     /// zeroed, and the length becomes `kept` plus their count. When `next` is past the length (the
     /// list shrank meanwhile) the length becomes at most `kept`.
     Compact,
-    /// `[compare]` or `[compare, key]` (`sort`, and `sort_by` with a string key): sorts the items
+    /// `[compare]` or `[compare, key]` (`sort` on strings, and `sort_by` with a string key): sorts the items
     /// stably, smallest first. `compare` is a
     /// `FnRef` to a generated function `(env, a, b) -> u8` that says how the item at the pointer
     /// `a` stands to the one at `b`: 0 for before, 1 for equal, 2 for after (a total order). Its
     /// environment word is the address of a copy of `key`, a function value, when there is one, else
     /// 0. The items move as bytes.
     Sort,
-    /// `[key_fn, key]`: sorts the items stably, smallest first, by a number or bool key, as `Sort`
-    /// does. `key_fn` is a `FnRef` to a generated function `(env, a) -> i64` (`SortKey::Int`) or
-    /// `-> f64` (`SortKey::Float`) that gives the key of the item at the pointer `a`, widened; the
-    /// runtime calls it once per item, in order. Its environment word is as for `Sort`.
+    /// `[fill]` or `[fill, key]` (`sort` on numbers or bools, and `sort_by` with a number or bool
+    /// key): sorts the items stably, smallest first, by a key per item, as `Sort` does. `fill` is a
+    /// `FnRef` to a generated function `(env, xs, keys)` that writes the key of each item of the
+    /// list or array at `xs`, in order and widened, into `keys`, an `[i64]` (`SortKey::Int`) or
+    /// `[f64]` (`SortKey::Float`) with a slot per item; the runtime calls it once, when there are
+    /// at least two items. Its environment word is as for `Sort` (see `lower::sort`).
     SortBy(SortKey),
     /// `[n]` (an `i64`): gives the list room for at least `n` items; a list with less room gets a
     /// new buffer of exactly `n` items in its own arena (`kestrel_rt_list_reserve`). The length and

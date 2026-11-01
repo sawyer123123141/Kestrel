@@ -1,0 +1,276 @@
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: []
+// expect: [] [] [] [] []
+// expect: -4643232583303657648 -4643232583303657648 -4643232583303657648 -4643232583303657648 -4643232583303657648 -4643232583303657648
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [0]
+// expect: [1] [-0.25] [-3] [4] [true]
+// expect: -2581434881575963006 -2581434881575963006 9143274779055443214 574422554345389890 -2521650967823692017 -2581434881575963006
+// expect: [0, 1]
+// expect: [0, 1]
+// expect: [1, 0]
+// expect: [1, 0]
+// expect: [1, 0]
+// expect: [0, 1]
+// expect: [1, 0]
+// expect: [1, 0]
+// expect: [0, 1]
+// expect: [0, 1]
+// expect: [4294967296, 9223372036854775807] [-0, NaN] [-3, 1] [1, 4] [false, true]
+// expect: 3055244569187551059 4155405785106784296 -3829606428828459233 8002739063102718548 2832455323192414084 6285383837794763531
+// expect: [0, 1, 2]
+// expect: [0, 1, 2]
+// expect: [1, 0, 2]
+// expect: [0, 1, 2]
+// expect: [2, 0, 1]
+// expect: [2, 0, 1]
+// expect: [2, 1, 0]
+// expect: [2, 1, 0]
+// expect: [0, 1, 2]
+// expect: [0, 1, 2]
+// expect: [1, 1, 42] [-inf, inf, inf] [-2, -1, 0] [2, 4, 4] [false, true, true]
+// expect: -3471945047731221141 -2941312877698483635 -8624276651772159588 -4711146498004023161 4499234143735307829 5655580030102322884
+// expect: [8, 4, 5, 9, 6, 1, 2, 7, 10, 11, 0, 3]
+// expect: [7, 4, 6, 0, 9, 1, 2, 3, 5, 8, 10, 11]
+// expect: [0, 3, 9, 1, 4, 10, 5, 11, 2, 6, 7, 8]
+// expect: [3, 4, 6, 7, 11, 9, 1, 2, 5, 0, 8, 10]
+// expect: [8, 3, 6, 11, 1, 4, 5, 9, 0, 2, 7, 10]
+// expect: [0, 1, 2, 5, 7, 8, 9, 10, 11, 3, 4, 6]
+// expect: [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+// expect: [9, 0, 6, 4, 7, 1, 2, 3, 5, 8, 10, 11]
+// expect: [8, 4, 5, 9, 6, 1, 2, 7, 10, 11, 0, 3]
+// expect: [7, 4, 6, 0, 9, 1, 2, 3, 5, 8, 10, 11]
+// expect: [-9223372036854775807, -42, -42, -42, -1, 0, 1, 1, 1, 42, 4294967296, 9223372036854775807] [-inf, -inf, -inf, -0.25, -0.25, -0.25, -0, 0.25, 3, 3, NaN, NaN] [-3, -2, -1, 0, 0, 1, 2, 2, 2, 3, 3, 3] [0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4] [false, false, false, false, false, false, false, false, false, true, true, true]
+// expect: 3427738947104239353 -9065197519552502802 8368116986610376487 -4985873297872190494 5066684105132047537 8984451098625924207
+// expect: 63 655225
+// expect: 63 821663
+// expect: 63 773111
+// expect: 63 40298
+// expect: 63 748867
+// expect: 63 889128
+// expect: 63 450823
+// expect: 63 465006
+// expect: 63 655225
+// expect: 63 821663
+// expect: -3705763763047420947 -7662755669533014623 161870538918104696 6578797831441048183 -6317543157779823797 -4717461884400906005
+// expect: 64 647278
+// expect: 64 830984
+// expect: 64 647105
+// expect: 64 455329
+// expect: 64 54159
+// expect: 64 874295
+// expect: 64 486641
+// expect: 64 964403
+// expect: 64 647278
+// expect: 64 830984
+// expect: 3480780314984079404 -7247352534875701673 2280181960114534466 -1372389551967829663 6121163563420633676 -5677256527815025003
+// expect: 65 76565
+// expect: 65 900838
+// expect: 65 581577
+// expect: 65 982296
+// expect: 65 434328
+// expect: 65 452072
+// expect: 65 932082
+// expect: 65 957427
+// expect: 65 76565
+// expect: 65 900838
+// expect: 2256747682916515117 -5128426350381217669 3566744890389570154 -729425905869826279 7878487605910115993 2043462876770118128
+// expect: 200 477928
+// expect: 200 705589
+// expect: 200 725448
+// expect: 200 586798
+// expect: 200 267284
+// expect: 200 984298
+// expect: 200 731394
+// expect: 200 597366
+// expect: 200 477928
+// expect: 200 705589
+// expect: 9182473979063692910 -6869108993410685880 5556890924690731471 1250096282628156977 3896513261410978756 -4596730185896908926
+// expect: 3000 344200
+// expect: 3000 158582
+// expect: 3000 420799
+// expect: 3000 153125
+// expect: 3000 518294
+// expect: 3000 422837
+// expect: 3000 707927
+// expect: 3000 833972
+// expect: 3000 344200
+// expect: 3000 158582
+// expect: -1008535637909844967 -6099975870928035896 -2266681735728172768 -4172829837827885397 -838872588867063721 -2590416354595534964
+// expect: [-2, 0, -0, 0, NaN, NaN] 5711930068764211585
+// expect: [-2, 0, -0, 0, NaN, NaN] 5711930068764211585
+// expect: [0]
+// `sort_by` with number and bool keys, and `sort` on numbers and bools: the exact order of items
+// with equal keys (they keep their first order), NaN keys after every number and equal to each
+// other whatever their sign, `-0.0` equal to `0.0`, infinities, `i64` keys at the type's least and
+// greatest values, short lists and long ones, lists and arrays. `checksum` shows every bit of the
+// sorted floats, so a NaN's sign and `-0.0` against `0.0` count. The key runs once per item, in
+// item order, and not at all for a list of fewer than two items.
+struct It {
+    k: i64
+    f: f64
+    g: float
+    n: int
+    b: u8
+    id: int
+}
+
+ids(xs: list[It]) -> list[int] {
+    xs.map((e) { e.id })
+}
+
+hash(xs: list[It]) -> int {
+    var s = 0
+    for e in xs {
+        s = (s * 31 + e.id) % 1000003
+    }
+    s
+}
+
+pick_k(r: int) -> i64 {
+    let least = i64(-9223372036854775807) - i64(1)
+    let most = i64(9223372036854775807)
+    let pool = [least, most, i64(-1), i64(0), i64(1), least + i64(1), most - i64(1), i64(42), i64(-42), i64(4294967296)]
+    pool[r % 10]
+}
+
+pick_f(r: int) -> f64 {
+    var z = f64(0.0)
+    let nan = z / z
+    // The least subnormal and a power of two near the greatest float, made exactly.
+    var tiny = f64(1.0)
+    var big = f64(1.0)
+    for i from 0 to 1074 {
+        tiny = tiny / f64(2.0)
+    }
+    for i from 0 to 1023 {
+        big = big * f64(2.0)
+    }
+    let pool = [nan, -nan, f64(-0.0), f64(0.0), f64(1.0) / z, f64(-1.0) / z, f64(1.5), f64(-1.5), tiny, -tiny, big, f64(2.5)]
+    pool[r % 12]
+}
+
+pick_g(r: int) -> float {
+    var z = 0.0
+    let nan = z / z
+    let pool = [nan, -nan, -0.0, 0.0, 1.0 / z, -1.0 / z, 0.25, -0.25, 3.0]
+    pool[r % 9]
+}
+
+make(n: int, seed: int) -> list[It] {
+    var out = list[It]()
+    var r = seed
+    for i from 0 to n {
+        r = (r * 75 + 74) % 65537
+        let a = r
+        r = (r * 75 + 74) % 65537
+        out.add(It(k: pick_k(a), f: pick_f(r), g: pick_g(a + r), n: (r % 7) - 3, b: u8(a % 5), id: i))
+    }
+    out
+}
+
+show(xs: list[It]) {
+    if xs.len <= 20 {
+        print(ids(xs))
+    } else {
+        print(xs.len, hash(xs))
+    }
+}
+
+main() {
+    for n in [0, 1, 2, 3, 12, 63, 64, 65, 200, 3000] {
+        let base = make(n, 7 + n)
+        var xs = base
+        xs.sort_by((e) { e.k })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.f })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.g })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.n })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.b })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.n < 0 })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { 0 - e.id })
+        show(xs)
+        xs = base
+        xs.sort_by((e) { e.f * f64(-1.0) })
+        show(xs)
+        // The same keys through a named function and through a function value.
+        xs = base
+        xs.sort_by(key_of)
+        show(xs)
+        let by = (e: It) -> f64 { e.f }
+        xs = base
+        xs.sort_by(by)
+        show(xs)
+        // `sort` on the keys themselves.
+        var ks: list[i64] = base.map((e) { e.k })
+        ks.sort()
+        var fs: list[f64] = base.map((e) { e.f })
+        fs.sort()
+        var gs: list[float] = base.map((e) { e.g })
+        gs.sort()
+        var ns: list[int] = base.map((e) { e.n })
+        ns.sort()
+        var bs: list[u8] = base.map((e) { e.b })
+        bs.sort()
+        var ts: list[bool] = base.map((e) { e.n < 0 })
+        ts.sort()
+        if n <= 12 {
+            // (The floats of `fs` are shown by their checksum: one is a long subnormal.)
+            print(ks, gs, ns, bs, ts)
+        }
+        print(checksum(ks), checksum(fs), checksum(gs), checksum(ns), checksum(bs), checksum(ts))
+    }
+
+    // An array sorts like a list.
+    var arr = array[f64](6)
+    var z = f64(0.0)
+    arr[0] = f64(0.0)
+    arr[1] = z / z
+    arr[2] = f64(-0.0)
+    arr[3] = -(z / z)
+    arr[4] = f64(-2.0)
+    arr[5] = f64(0.0)
+    var arr2 = arr
+    arr.sort()
+    print(arr, checksum(arr))
+    arr2.sort_by((x) { x })
+    print(arr2, checksum(arr2))
+
+    // A key that would fail is never run for a list of fewer than two items.
+    let lookup = [10, 20, 30]
+    var one = list[It]()
+    one.add(It(k: i64(0), f: f64(0.0), g: 0.0, n: 9, b: u8(0), id: 0))
+    one.sort_by((e) { lookup[e.n] })
+    print(ids(one))
+}
+
+pure key_of(e: It) -> i64 {
+    e.k
+}

@@ -209,6 +209,10 @@ impl<'a> BodyChecker<'a> {
     /// over it (or over a list holding it) may be running.
     pub(super) fn list_sort(&mut self, e: &Expr, receiver: &Expr, recv_ty: Ty, method: ListMethod, name_span: Span, args: &[Arg]) -> Ty {
         let name = word(method);
+        // Lowering sorts numbers and bools by keys in an `[i64]` or `[f64]` (see `kir`'s
+        // `lower::sort`), whose element types need interning.
+        self.t.intern_elem(Ty::I64);
+        self.t.intern_elem(Ty::F64);
         if self.receiver_root(receiver, name).is_some() {
             if let Some(Overlap { list, .. }) = self.overlapping_loop(receiver) {
                 self.error(e.span, format!("can't sort `{list}` while looping over it; sort it after the loop"));
