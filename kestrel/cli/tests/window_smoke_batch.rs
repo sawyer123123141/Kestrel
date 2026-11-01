@@ -58,11 +58,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_texture_dropped_before_the_first_frame_is_drawn_first_under_the_jit() {
     smoke(How::Jit, &EARLY_TEXTURE);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_texture_dropped_before_the_first_frame_is_drawn_first_in_an_exe() {
     smoke(How::Exe, &EARLY_TEXTURE);
 }
@@ -107,11 +109,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn clear_erases_shapes_still_in_the_batch_under_the_jit() {
     smoke(How::Jit, &CLEAR);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn clear_erases_shapes_still_in_the_batch_in_an_exe() {
     smoke(How::Exe, &CLEAR);
 }

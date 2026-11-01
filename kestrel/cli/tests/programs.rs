@@ -10,7 +10,7 @@ mod directives;
 mod release;
 
 use common::directives::{compare, only_prefixed, parse as parse_directives, Directives, PROOF_FAILED};
-use common::{hermetic, scrub};
+use common::{hermetic, no_window, report_skipped, scrub};
 
 /// What a test program declares about itself in `// expect...` comments.
 type Expect = Directives;
@@ -78,14 +78,19 @@ fn kestrel_run(path: &Path, exp: &Expect) -> Output {
 
 #[test]
 fn programs_run_via_jit() {
-    let mut failures = Vec::new();
+    let (mut failures, mut skipped) = (Vec::new(), Vec::new());
     for path in programs() {
         let src = fs::read_to_string(&path).unwrap();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let exp = expectations(&name, &src);
         let out = kestrel_run(&path, &exp);
+        if no_window(&out) {
+            skipped.push(name);
+            continue;
+        }
         failures.extend(compare(&name, "jit", &out, &exp));
     }
+    report_skipped("programs_run_via_jit", &skipped);
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
@@ -201,13 +206,17 @@ fn programs_run_as_executables() {
     fs::create_dir_all(&out_dir).unwrap();
     // `KESTREL_TEST_VERIFY_EXE=1` builds the executables with the proof check on too.
     let proofs = std::env::var_os("KESTREL_TEST_VERIFY_EXE").is_some_and(|v| v == "1");
-    let mut failures = Vec::new();
+    let (mut failures, mut skipped) = (Vec::new(), Vec::new());
     for path in programs() {
         let src = fs::read_to_string(&path).unwrap();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let exp = expectations(&name, &src);
         let exe = out_dir.join(path.file_stem().unwrap()).with_extension(std::env::consts::EXE_EXTENSION);
         let built = build_with(&path, &exe, &[], proofs);
+        if no_window(&built) {
+            skipped.push(name);
+            continue;
+        }
         if !built.status.success() {
             failures.push(format!("{name} [build]: {}", String::from_utf8_lossy(&built.stderr)));
             continue;
@@ -216,6 +225,7 @@ fn programs_run_as_executables() {
         let out = hermetic(&mut Command::new(&exe)).envs(exp.env.iter().map(|(k, v)| (k, v))).output().expect("run built exe");
         failures.extend(compare(&name, "exe", &out, &exp));
     }
+    report_skipped("programs_run_as_executables", &skipped);
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 

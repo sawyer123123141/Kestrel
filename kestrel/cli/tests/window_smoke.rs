@@ -94,21 +94,25 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_real_window_draws_under_the_jit() {
     smoke(How::Jit, &SQUARE);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_real_window_draws_in_an_exe() {
     smoke(How::Exe, &SQUARE);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn every_shape_and_text_draw_under_the_jit() {
     smoke(How::Jit, &SHAPES);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn every_shape_and_text_draw_in_an_exe() {
     smoke(How::Exe, &SHAPES);
 }

@@ -19,6 +19,7 @@ fn run_particles(frames: u32, quiet: bool) -> Output {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_particles_demo_runs_headless_and_reports_its_times() {
     // The headless clock runs at 60 frames a second, and the demo prints a line once a second,
     // so 70 frames give exactly one line.
@@ -32,6 +33,7 @@ fn the_particles_demo_runs_headless_and_reports_its_times() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_particles_demo_draws_every_particle_with_one_rects_call_a_frame() {
     // Not quiet: each headless line shows what the demo drew. `draw.rects` prints its positions'
     // count, so a frame that copied too few of the 50,000 particles would show it.

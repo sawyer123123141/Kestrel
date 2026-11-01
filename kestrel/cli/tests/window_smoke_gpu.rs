@@ -105,21 +105,25 @@ main() {
 const TEXTURES_ACCENTED: Case = Case { name: "textures caf\u{e9}", ..TEXTURES };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn textures_and_sprites_draw_under_the_jit() {
     smoke(How::Jit, &TEXTURES);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn textures_and_sprites_draw_in_an_exe() {
     smoke(How::Exe, &TEXTURES);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_folder_with_a_non_ascii_name_works_under_the_jit() {
     smoke(How::Jit, &TEXTURES_ACCENTED);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_folder_with_a_non_ascii_name_works_in_an_exe() {
     smoke(How::Exe, &TEXTURES_ACCENTED);
 }
@@ -190,11 +194,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn bulk_and_negative_size_rectangles_draw_under_the_jit() {
     smoke(How::Jit, &RECTS);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn bulk_and_negative_size_rectangles_draw_in_an_exe() {
     smoke(How::Exe, &RECTS);
 }
@@ -276,11 +282,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_cube_a_sphere_and_a_line_draw_under_the_jit() {
     smoke(How::Jit, &SHAPES_3D);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_cube_a_sphere_and_a_line_draw_in_an_exe() {
     smoke(How::Exe, &SHAPES_3D);
 }
@@ -350,11 +358,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_2d_and_3d_passes_switch_under_the_jit() {
     smoke(How::Jit, &SWITCH);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_2d_and_3d_passes_switch_in_an_exe() {
     smoke(How::Exe, &SWITCH);
 }

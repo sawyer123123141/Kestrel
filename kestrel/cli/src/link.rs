@@ -20,11 +20,12 @@ impl Lib {
         }
     }
 
-    /// Where the library was left when this compiler was built.
+    /// Where the library was left when this compiler was built. Only Windows builds have the
+    /// window library; elsewhere a window program is refused before it gets here.
     fn built(self) -> &'static str {
         match self {
             Lib::Runtime => env!("KESTREL_RUNTIME_LIB"),
-            Lib::Window => env!("KESTREL_WINDOW_LIB"),
+            Lib::Window => option_env!("KESTREL_WINDOW_LIB").unwrap_or(""),
         }
     }
 
@@ -53,7 +54,8 @@ pub fn link(obj: &Path, exe: &Path, lib: Lib) -> Result<(), String> {
         }
         cmd.args(["/NODEFAULTLIB:libcmt", "/SUBSYSTEM:CONSOLE"]);
     } else {
-        cmd.arg(obj).arg(&library).arg("-o").arg(exe).args(["-lpthread", "-ldl", "-lm"]);
+        // What Rust's std needs (`rustc --print native-static-libs` on Linux).
+        cmd.arg(obj).arg(&library).arg("-o").arg(exe).args(["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"]);
     }
     let out = cmd.output().map_err(|e| format!("couldn't start the linker: {e}"))?;
     if !out.status.success() {

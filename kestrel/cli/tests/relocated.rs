@@ -7,6 +7,13 @@ use std::process::{Command, Output};
 const LIB_FILE: &str = if cfg!(windows) { "kestrel_runtime.lib" } else { "libkestrel_runtime.a" };
 const WINDOW_LIB_FILE: &str = if cfg!(windows) { "kestrel_window.lib" } else { "libkestrel_window.a" };
 
+/// Where the build left the window library. Only Windows builds have one; elsewhere the window
+/// tests are ignored.
+#[cfg(windows)]
+const BUILT_WINDOW_LIB: &str = env!("KESTREL_WINDOW_LIB");
+#[cfg(not(windows))]
+const BUILT_WINDOW_LIB: &str = "";
+
 /// A fresh directory holding only a copy of the `kestrel` binary.
 fn relocated_binary(name: &str) -> (PathBuf, PathBuf) {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -58,6 +65,7 @@ fn library_next_to_the_binary_wins_over_the_built_in_path() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn copied_binary_falls_back_to_the_window_library_it_was_built_with() {
     let (dir, kestrel) = relocated_binary("relocated_window_alone");
     let out = build_window_program(&kestrel, &dir);
@@ -65,9 +73,10 @@ fn copied_binary_falls_back_to_the_window_library_it_was_built_with() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn copied_binary_uses_the_window_library_next_to_it() {
     let (dir, kestrel) = relocated_binary("relocated_with_window_lib");
-    fs::copy(env!("KESTREL_WINDOW_LIB"), dir.join(WINDOW_LIB_FILE)).unwrap();
+    fs::copy(BUILT_WINDOW_LIB, dir.join(WINDOW_LIB_FILE)).unwrap();
     let out = build_window_program(&kestrel, &dir);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let exe = dir.join(format!("builtin_modules{}", std::env::consts::EXE_SUFFIX));
@@ -76,6 +85,7 @@ fn copied_binary_uses_the_window_library_next_to_it() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn window_library_next_to_the_binary_wins_over_the_built_in_path() {
     let (dir, kestrel) = relocated_binary("relocated_bad_window_lib");
     fs::write(dir.join(WINDOW_LIB_FILE), b"not a library").unwrap();
@@ -85,6 +95,7 @@ fn window_library_next_to_the_binary_wins_over_the_built_in_path() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn each_program_links_only_the_library_it_needs() {
     // A plain program never touches the window library, and a window program never touches
     // the runtime library on its own: it carries the runtime inside the window library.

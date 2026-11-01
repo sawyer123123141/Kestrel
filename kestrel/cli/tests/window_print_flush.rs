@@ -17,6 +17,7 @@ mod common;
 const SOURCE: &str = "use window\n\nmain() {\n    window.open(64, 64, \"flush\")\n    print(\"running\")\n    while window.frame() {\n    }\n}\n";
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn print_output_shows_up_while_the_frame_loop_runs() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("window_print_flush");
     fs::create_dir_all(&dir).unwrap();

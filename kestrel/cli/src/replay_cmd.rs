@@ -38,7 +38,11 @@ pub fn start(args: &Args, replaying: Option<ReplayFile>) {
     } else if let Some(path) = &args.record {
         // Settings the window can't read make `window.open` fail with their own message; a
         // program that opens no window doesn't care, and its recording says `real`.
+        #[cfg(windows)]
         let window = kestrel_window::window_mode().unwrap_or(WindowMode::Real);
+        // Only Windows builds have the window, and elsewhere a window program never gets here.
+        #[cfg(not(windows))]
+        let window = WindowMode::Real;
         replay::start_recording(Recording {
             path: path.into(),
             program: args.path.clone(),

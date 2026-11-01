@@ -93,11 +93,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_clockwise_quad_shows_and_a_counter_clockwise_one_does_not_under_the_jit() {
     smoke(How::Jit, &WINDING);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_clockwise_quad_shows_and_a_counter_clockwise_one_does_not_in_an_exe() {
     smoke(How::Exe, &WINDING);
 }
@@ -168,11 +170,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_textured_mesh_draws_its_uvs_under_the_jit() {
     smoke(How::Jit, &TEXTURED);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_textured_mesh_draws_its_uvs_in_an_exe() {
     smoke(How::Exe, &TEXTURED);
 }
@@ -239,11 +243,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn two_d_over_a_mesh_stays_on_top_under_the_jit() {
     smoke(How::Jit, &OVERLAY);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn two_d_over_a_mesh_stays_on_top_in_an_exe() {
     smoke(How::Exe, &OVERLAY);
 }
@@ -303,11 +309,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_mesh_split_in_two_parts_draws_both_under_the_jit() {
     smoke(How::Jit, &SPLIT);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_mesh_split_in_two_parts_draws_both_in_an_exe() {
     smoke(How::Exe, &SPLIT);
 }

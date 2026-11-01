@@ -8,6 +8,7 @@ use std::process::Command;
 /// KESTREL_WINDOW_LIB, and copies them next to the `kestrel` binary where `kestrel build`
 /// looks first. Programs that use `window`, `draw` or `input` link the window library
 /// (which carries the runtime as well); every other program links the runtime library.
+/// Only Windows builds have the window, so elsewhere only the runtime library is built.
 fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let workspace = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("..");
@@ -15,10 +16,18 @@ fn main() {
     let release = env::var("PROFILE").unwrap() == "release";
     let windows = env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows";
 
+    let libs: &[(&str, &str)] = if windows {
+        &[("KESTREL_RUNTIME_LIB", "kestrel_runtime"), ("KESTREL_WINDOW_LIB", "kestrel_window")]
+    } else {
+        &[("KESTREL_RUNTIME_LIB", "kestrel_runtime")]
+    };
+
     let mut cmd = Command::new(env::var("CARGO").unwrap());
-    cmd.current_dir(&workspace)
-        .args(["build", "-p", "kestrel-runtime", "-p", "kestrel-window", "--lib", "--target-dir"])
-        .arg(&target_dir);
+    cmd.current_dir(&workspace).arg("build");
+    for (_, krate) in libs {
+        cmd.args(["-p", &krate.replace('_', "-")]);
+    }
+    cmd.args(["--lib", "--target-dir"]).arg(&target_dir);
     if release {
         cmd.arg("--release");
     }
@@ -29,13 +38,13 @@ fn main() {
         }
     }
     cmd.env_remove("RUSTFLAGS");
-    let status = cmd.status().expect("start cargo for kestrel-runtime and kestrel-window");
-    assert!(status.success(), "building kestrel-runtime and kestrel-window failed");
+    let status = cmd.status().expect("start cargo for the Kestrel libraries");
+    assert!(status.success(), "building the Kestrel libraries failed");
 
     let profile_dir = target_dir.join(if release { "release" } else { "debug" });
     // Best effort: `kestrel build` falls back to the paths below if installing is skipped or fails.
     let beside = binary_dir(&out);
-    for (var, krate) in [("KESTREL_RUNTIME_LIB", "kestrel_runtime"), ("KESTREL_WINDOW_LIB", "kestrel_window")] {
+    for &(var, krate) in libs {
         let file = if windows { format!("{krate}.lib") } else { format!("lib{krate}.a") };
         let lib = profile_dir.join(&file);
         assert!(lib.exists(), "{krate} staticlib missing at {}", lib.display());

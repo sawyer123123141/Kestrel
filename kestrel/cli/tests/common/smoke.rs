@@ -5,6 +5,11 @@
 //! might not render a hidden window; for that, `KESTREL_SMOKE_VISIBLE=1` in the environment of the
 //! test process lets a run whose pixels were off (and nothing else) repeat with a visible window.
 //!
+//! A machine without a graphics driver that has OpenGL 3.3 (a CI runner) sets
+//! `KESTREL_TEST_NO_WINDOW=1` in the environment of the test process: these tests then open no
+//! window at all and pass with a line saying they were skipped. Builds without the window (every
+//! platform but Windows for now) ignore them.
+//!
 //! Every CLI test crate includes this through `common`, and most don't use it, so
 //! `common/mod.rs` allows dead code.
 
@@ -128,7 +133,7 @@ fn check_shot(shot: &Path, case: &Case) -> Result<(), String> {
     points.extend(case.pixels.iter().map(|&(x, y, _, _)| (x, y)));
     let rects = || case.inked.iter().flat_map(|&(x, y, w, h, _)| (y..y + h).flat_map(move |py| (x..x + w).map(move |px| (px, py))));
     points.extend(rects());
-    let Some(read) = kestrel_window::png_pixels(shot, &points) else { return Err("the screenshot isn't a readable image".to_string()) };
+    let Some(read) = png_pixels(shot, &points) else { return Err("the screenshot isn't a readable image".to_string()) };
 
     let mut wrong = Vec::new();
     if read[0].is_none() || read[1].is_some() || read[2].is_some() {
@@ -193,11 +198,33 @@ fn copy_assets(case: &Case, dir: &Path) {
     }
 }
 
+/// The screenshot's pixels at `points`, read by the window crate (only Windows builds have it).
+#[cfg(windows)]
+fn png_pixels(shot: &Path, points: &[(i32, i32)]) -> Option<Vec<Option<[u8; 4]>>> {
+    kestrel_window::png_pixels(shot, points)
+}
+
+/// Without the window crate a screenshot can't be read, and no test here takes one.
+#[cfg(not(windows))]
+fn png_pixels(_: &Path, _: &[(i32, i32)]) -> Option<Vec<Option<[u8; 4]>>> {
+    None
+}
+
+/// Whether `value`, the `KESTREL_TEST_NO_WINDOW` of the process that runs the tests, says this
+/// machine can't open a window. Only `1` does.
+pub fn no_window_wanted(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
 /// Writes the program, builds it if `how` says to, then runs it with a hidden window. If the
 /// hidden run behaved and just its pixels were off, the test fails, unless the environment
 /// that runs the tests has `KESTREL_SMOKE_VISIBLE=1`: then the program runs again with a visible
-/// window and the test asserts on that run.
+/// window and the test asserts on that run. With `KESTREL_TEST_NO_WINDOW=1` it does nothing.
 pub fn smoke(how: How, case: &Case) {
+    if no_window_wanted(std::env::var("KESTREL_TEST_NO_WINDOW").ok().as_deref()) {
+        println!("window smoke test ({}): skipped, KESTREL_TEST_NO_WINDOW=1 says this machine can't open a window", case.name);
+        return;
+    }
     let dir = scratch(&format!("{}_{}", case.name, how.dir_name()));
     let shot = dir.join("shot.png");
     let source = dir.join("smoke.kes");
