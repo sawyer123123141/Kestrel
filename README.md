@@ -158,6 +158,8 @@ target/release/kestrel check program.kes      # errors only
 target/release/kestrel check --report program.kes   # what is left in each function and loop
 ```
 
+On Linux x64 the same commands build the compiler and `kestrel build` exes (linked with `cc`), without the window: a program that uses `window`, `draw`, `draw3d` or `input` is refused there with a sentence saying so. CI (`.github/workflows/ci.yml`) runs clippy and the tests on Linux and Windows.
+
 `kestrel build --release` turns off overflow and narrowing checks (they wrap instead). `kestrel run --release` does the same.
 
 **The compiler leaves out each check it can prove won't fail.** `for i from 0 to xs.len { total += xs[i] }` has no bounds check on `xs[i]`, and `h & 0x7FFFFFFF` times a 31-bit constant has no overflow check, in every build. `kestrel check --report` shows what stayed, per function and loop, with the line and the reason, and the allocations and other ways to fail (`--report --release` for a `--release` build):
