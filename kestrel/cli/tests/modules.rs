@@ -125,6 +125,7 @@ fn runtime_errors_report_the_line_and_their_own_file() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_native_error_names_the_module_file_that_called_it() {
     let shapes = "use draw\nuse { WHITE from draw }\n\npub dot() {\n    draw.circle(vec2(1, 1), 2, WHITE)\n}\n";
     let main = "use { dot from shapes }\nmain() {\n    dot()\n}\n";
@@ -236,6 +237,7 @@ main() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_module_constant_can_use_a_constant_of_another_module() {
     // `palette` loads before `draw` here, and the order of the `use` lines doesn't matter.
     let palette = "use draw\npub let SKY = draw.BLUE\npub let FADED = draw.Color(0.5, 0.5, 1, a: 0.5)\n";

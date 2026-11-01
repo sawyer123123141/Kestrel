@@ -119,6 +119,7 @@ fn number(words: &[&str], i: usize) -> i64 {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn pong_runs_headless_and_the_three_builds_agree() {
     let jit = stdout(&run(&copy_demo(&scratch("jit")), 600));
     let checked = stdout(&ok(headless(&mut Command::new(build(&scratch("checked"), false)), 600), "checked exe"));
@@ -143,6 +144,7 @@ fn pong_runs_headless_and_the_three_builds_agree() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn pong_rolls_back_and_recovers_lost_packets() {
     let out = stdout(&run(&copy_demo(&scratch("rollbacks")), 600));
     let words = line_after(&out, "rollbacks ");
@@ -157,6 +159,7 @@ fn pong_rolls_back_and_recovers_lost_packets() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn pong_reports_an_injected_desync() {
     let main = copy_changed(&scratch("desync"), "let DESYNC_AT = -1", "let DESYNC_AT = 300");
     let out = stdout(&run(&main, 600));
@@ -178,6 +181,7 @@ fn arena_bytes(frames: u32) -> u64 {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn pong_memory_stays_flat() {
     // Everything is a ring or lives in a frame's `arena { }`, except the replay, which keeps
     // every confirmed frame's inputs and a checksum every 60 frames: 24 bytes a frame and 8 a
@@ -221,6 +225,7 @@ fn check_file(main: &Path, file: &Path) -> String {
 const INPUTS_AT: usize = 13 + 40 + 4;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn writes_and_checks_its_replay_file() {
     let dir = scratch("file");
     let main = copy_demo(&dir);
@@ -243,6 +248,7 @@ fn writes_and_checks_its_replay_file() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_injected_desync_shows_in_the_file_check() {
     // `DESYNC_AT` nudges peer 2's game, but the file holds peer 1's confirmed inputs and the
     // checksums of the states they give, which the nudge never reaches: a `DESYNC_AT` build
@@ -264,6 +270,7 @@ fn an_injected_desync_shows_in_the_file_check() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_bad_file_is_refused() {
     let dir = scratch("bad_file");
     let main = copy_demo(&dir);
@@ -281,6 +288,7 @@ fn a_bad_file_is_refused() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_replay_that_cant_be_written_is_reported() {
     // A folder where the file should go makes `file.write` fail; the run still ends normally.
     let dir = scratch("unwritable");
@@ -315,6 +323,7 @@ fn trace_after(s: &mut Session, last: (i64, i64, i64)) -> (i64, i64, i64) {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_edit_reloads_pong_and_keeps_the_game() {
     // A copy with `TRACE` on, each frame paced to 5 ms so the run lasts while the test edits it.
     let dir = scratch("reload");

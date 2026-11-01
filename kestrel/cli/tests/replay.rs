@@ -111,6 +111,7 @@ fn entries(log: &[u8]) -> Vec<(usize, NativeId)> {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn recorded_headless_pong_replays_and_matches() {
     let dir = scratch("pong");
     let (main, file) = (copy_pong(&dir), dir.join("run.replay"));
@@ -129,6 +130,7 @@ fn recorded_headless_pong_replays_and_matches() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_flipped_input_byte_differs_at_the_last_frame() {
     let dir = scratch("flip");
     let (main, file) = (copy_pong(&dir), dir.join("run.replay"));
@@ -174,6 +176,7 @@ main() {
 "#;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_changed_call_order_is_reported() {
     let dir = scratch("order");
     let (main, file) = (program(&dir, MOUSE), dir.join("run.replay"));
@@ -184,6 +187,7 @@ fn a_changed_call_order_is_reported() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_replay_ignores_the_window_settings() {
     // A replay opens no window, so settings that would stop `kestrel run` (a headless frame
     // count that isn't a number) or hide the window change nothing.
@@ -196,6 +200,7 @@ fn a_replay_ignores_the_window_settings() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_version_mismatch_is_reported_but_runs() {
     let dir = scratch("version");
     let (main, file) = (program(&dir, MOUSE), dir.join("run.replay"));
@@ -213,6 +218,7 @@ fn a_version_mismatch_is_reported_but_runs() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_short_log_reports_the_frame() {
     let dir = scratch("short");
     let (main, file) = (program(&dir, MOUSE), dir.join("run.replay"));
@@ -230,6 +236,7 @@ fn a_short_log_reports_the_frame() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_recorded_failure_recurs() {
     let src = r#"use window
 main() {
@@ -290,6 +297,7 @@ main() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_non_quiet_headless_recording_compares_its_draw_lines() {
     let dir = scratch("loud");
     let (main, file) = (copy_pong(&dir), dir.join("run.replay"));

@@ -156,6 +156,7 @@ hi 1 4 x1.txt 100
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn a_window_program_that_uses_file_builds() {
     // An exe that uses `window` links the window library, which must carry the runtime's natives
     // too (`file` here): the link fails on a missing symbol. It is built, not run.

@@ -29,7 +29,7 @@ use std::time::Duration;
 mod common;
 
 use common::directives::{compare, only_prefixed, parse, Directives};
-use common::{hermetic, output_within};
+use common::{hermetic, no_window, output_within, report_skipped};
 
 /// What a contract's error says; see `release_runs_match_their_expectations`.
 const CONTRACT_FAILED: &str = "can't be proven";
@@ -152,22 +152,24 @@ fn timed_out(name: &str, mode: &str) -> String {
 
 #[test]
 fn engine_tests_run_via_jit() {
-    let mut failures = Vec::new();
+    let (mut failures, mut skipped) = (Vec::new(), Vec::new());
     for path in tests() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let exp = expectations(&name, &fs::read_to_string(&path).unwrap());
         let file = prepare("", &path, &exp);
         match kestrel_run(&file, &exp) {
+            Some(out) if no_window(&out) => skipped.push(name),
             Some(out) => failures.extend(compare(&name, "jit", &out, &exp)),
             None => failures.push(timed_out(&name, "jit")),
         }
     }
+    report_skipped("engine_tests_run_via_jit", &skipped);
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
 #[test]
 fn engine_tests_run_as_executables() {
-    let mut failures = Vec::new();
+    let (mut failures, mut skipped) = (Vec::new(), Vec::new());
     for path in tests() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let exp = expectations(&name, &fs::read_to_string(&path).unwrap());
@@ -180,6 +182,10 @@ fn engine_tests_run_as_executables() {
             failures.push(timed_out(&name, "exe build"));
             continue;
         };
+        if no_window(&built) {
+            skipped.push(name);
+            continue;
+        }
         // A build that fails (a type error, a contract that can't be proven) is compared with
         // the expected exit code and messages, as a run is; it isn't a harness failure.
         if !built.status.success() {
@@ -194,6 +200,7 @@ fn engine_tests_run_as_executables() {
         };
         failures.extend(compare(&name, "exe", &out, &exp));
     }
+    report_skipped("engine_tests_run_as_executables", &skipped);
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
@@ -205,7 +212,7 @@ fn engine_tests_run_as_executables() {
 /// a run over `RUN_TIMEOUT`, which is killed.
 #[test]
 fn release_runs_match_their_expectations() {
-    let mut failures = Vec::new();
+    let (mut failures, mut skipped) = (Vec::new(), Vec::new());
     for path in tests() {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let exp = expectations(&name, &fs::read_to_string(&path).unwrap());
@@ -221,12 +228,17 @@ fn release_runs_match_their_expectations() {
             failures.push(timed_out(&name, "release"));
             continue;
         };
+        if no_window(&out) {
+            skipped.push(name);
+            continue;
+        }
         failures.extend(compare(&name, "release", &out, &exp));
         let stderr = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
         if stderr.contains(CONTRACT_FAILED) && !exp.stderr.iter().any(|s| s.contains(CONTRACT_FAILED)) {
             failures.push(format!("{name} [release]: a contract doesn't hold\n--- stderr ---\n{stderr}"));
         }
     }
+    report_skipped("release_runs_match_their_expectations", &skipped);
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
@@ -242,6 +254,7 @@ const SMOKE_FRAMES: &str = "120";
 /// `main`, so this one is written here. `KESTREL_TEST_ONLY` runs it when a prefix matches
 /// `main_smoke`.
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn main_smoke_runs_the_play_program_headless() {
     if !smoke_selected(std::env::var("KESTREL_TEST_ONLY").ok().as_deref()) {
         return;

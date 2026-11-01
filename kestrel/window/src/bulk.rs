@@ -211,7 +211,9 @@ mod tests {
     fn corners(floats: &[f32]) -> Vec<(f32, f32)> {
         assert_eq!(floats.len() % 3, 0);
         floats
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|v| {
                 assert_eq!(v[2], Z, "every vertex sits at the same depth");
                 (v[0], v[1])
@@ -222,7 +224,9 @@ mod tests {
     /// The area the triangles in `floats` cover, counting each one's area once.
     fn area(floats: &[f32]) -> f32 {
         corners(floats)
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| {
                 let ((ax, ay), (bx, by), (cx, cy)) = (t[0], t[1], t[2]);
                 ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)).abs() / 2.0

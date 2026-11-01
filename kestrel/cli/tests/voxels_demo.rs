@@ -46,6 +46,7 @@ fn run_beside(name: &str, modules: &[&str], main: &str) -> String {
 const WORLD_CHECK: &str = include_str!("voxels/world_check.kes");
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_world_makes_the_benchmarks_faces_wound_and_coloured_right() {
     let out = run_beside("world", &["world.kes"], WORLD_CHECK);
     let mut expected = String::from("block 24 24 0 36\n");
@@ -101,6 +102,7 @@ main() {
 "#;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_flying_camera_moves_turns_and_keeps_its_limits() {
     let out = run_beside("fly", &["fly.kes"], FLY_CHECK);
     let expected = [
@@ -146,6 +148,7 @@ fn number_after(line: &str, word: &str) -> usize {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_viewer_builds_the_world_and_reports_its_times() {
     // The headless clock is 60 frames a second and the viewer prints once a second, so 70
     // frames give the start line and one report line.
@@ -164,6 +167,7 @@ fn the_viewer_builds_the_world_and_reports_its_times() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_viewer_uploads_each_non_empty_chunk_once_and_draws_every_mesh_each_frame() {
     let out = run_viewer(2, &[]);
     let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -204,6 +208,7 @@ fn the_viewer_uploads_each_non_empty_chunk_once_and_draws_every_mesh_each_frame(
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_viewer_frees_the_cpu_mesh_data_once_it_is_uploaded() {
     // The world's mesh lists live in an `arena { }` that ends after the upload, so the program
     // arena stays small (about 64 KiB measured). Without the arena it holds all of them: a

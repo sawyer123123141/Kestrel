@@ -46,6 +46,7 @@ fn trace(s: &mut Session) -> (String, bool, i64) {
 /// and the player stays where it stood in the same world (a reset would make a new world, with no
 /// columns, and put the player back in the sky at `START`).
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn an_edit_reloads_the_play_program_and_keeps_the_world() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("voxel_main_reload");
     let _ = fs::remove_dir_all(&dir);
