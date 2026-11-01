@@ -7,6 +7,9 @@
 //! and for 200; a period (816 frames: 16 slots times 51 lengths) is enough for every slot to have
 //! held the longest list (the map program's is 336). The control leaves out the save and restore lines, to show the program's
 //! own work allocates nothing after its first period.
+//!
+//! The rollback library's session does the same: two sessions of a game whose state holds such a
+//! list, over a `FakeNet` that loses some packets (so they roll back), stay flat after the first lap.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -126,4 +129,69 @@ fn a_map_in_a_snapshot_ring_stops_allocating() {
     assert_eq!(control_few, control_many, "the control's own work allocates after its first period");
     let (ring_few, ring_many) = (bytes("map_ring_2", 2, true), bytes("map_ring_200", 200, true));
     assert_eq!(ring_few, ring_many, "the snapshot ring grew from {ring_few} bytes (2 periods) to {ring_many} bytes (200 periods)");
+}
+
+/// Two rollback sessions of a game whose list cycles from 0 to 50 long, over a `FakeNet` with 5%
+/// loss, for `laps` laps of 816 frames. The arriving packets and the outgoing ones are made in
+/// arenas; the sessions' rings and the network's slots are made once.
+fn session_program(laps: u32) -> String {
+    format!(
+        "use rollback
+use {{ Input, Rollback, new_session, new_fake_net from rollback }}
+
+let LAPS = {laps}
+
+struct Cycle: Rollback {{
+    xs: list[int]
+    hp: int
+
+    pure step(var self, one: Input, two: Input) {{
+        self.xs.clear()
+        for k from 0 to self.hp % 51 {{
+            self.xs.add(k + one.buttons * 100 + two.buttons)
+        }}
+        self.hp += 1
+    }}
+}}
+
+main() {{
+    var p1 = new_session(Cycle(xs: [], hp: 0), me: 1, delay: 0)
+    var p2 = new_session(Cycle(xs: [], hp: 0), me: 2, delay: 0)
+    var net = new_fake_net(3, latency: 4, jitter: 2, loss: 0.05)
+    for tick from 0 to LAPS * 816 {{
+        arena {{
+            for p in net.deliver(tick) {{
+                if p.sender == 1 {{
+                    p2.remote(p)
+                }} else {{
+                    p1.remote(p)
+                }}
+            }}
+        }}
+        p1.local(Input(buttons: tick % 3))
+        p1.advance()
+        p2.local(Input(buttons: (tick / 10) % 2))
+        p2.advance()
+        arena {{
+            net.send(tick, p1.outgoing())
+            net.send(tick, p2.outgoing())
+        }}
+    }}
+    print(p1.confirmed() > LAPS * 816 - 20, p2.confirmed() > LAPS * 816 - 20, p1.rollbacks > LAPS, p2.rollbacks > LAPS, p1.desync_at, p2.desync_at)
+}}
+"
+    )
+}
+
+#[test]
+fn a_rollback_session_of_a_list_holding_game_stops_allocating_after_its_first_lap() {
+    let run = |name: &str, laps: u32| {
+        let path = write(name, &session_program(laps));
+        let out = hermetic(Command::new(env!("CARGO_BIN_EXE_kestrel")).arg("run").arg(&path)).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true true true true -1 -1", "{name}");
+        arena_bytes(&path)
+    };
+    let (few, many) = (run("session_2", 2), run("session_200", 200));
+    assert_eq!(few, many, "the sessions grew from {few} bytes (2 laps) to {many} bytes (200 laps)");
 }

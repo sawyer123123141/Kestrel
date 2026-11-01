@@ -1,1 +1,99 @@
-// `FakeNet` and `new_fake_net` come here (the rollback library round, task 3).
+// A network between two sessions inside one process, for tests and demos: each packet takes
+// `latency` frames plus up to `jitter` more to arrive, so packets can overtake each other, and a
+// share `loss` of them is lost. Its own `Rng` decides both, so a run is the same every time.
+//
+//     var net = new_fake_net(20261027, latency: 6, jitter: 2, loss: 0.05)
+//     arena {
+//         for p in net.deliver(tick) { ... }
+//         net.send(tick, s.outgoing())
+//     }
+//
+// Packets in flight sit in a fixed set of slots made once at the start: sending copies a packet
+// into a free slot's own storage, field by field and input by input, so a packet made inside an
+// `arena { }` can be sent, and the network allocates nothing as the game runs.
+use { Rng from random }
+
+// Packets that can be in flight at once (two sessions send one a frame, each lives a few frames).
+let SLOTS = 32
+
+pub struct FakeNet {
+    rng: Rng
+    latency: int
+    jitter: int
+    loss: float
+    slots: list[Packet]
+    // The frame each slot's packet arrives on, or -1 for a free slot.
+    due: [int]
+    // How many of a slot's inputs are its packet's: SENT, unless it was sent with fewer.
+    count: [int]
+    // Packets sent, and packets lost (by chance, or because every slot was busy).
+    sent: int
+    lost: int
+
+    // Sends a packet at frame `now`. One random number decides whether it is lost, and a second
+    // how many frames of jitter it takes. A packet carries at most its last SENT inputs.
+    pure send(var self, now: int, p: Packet) {
+        self.sent += 1
+        if self.rng.randf() < self.loss {
+            self.lost += 1
+            return
+        }
+        let arrives = now + self.latency + self.rng.randi_range(0, self.jitter)
+        for k from 0 to SLOTS {
+            if self.due[k] < 0 {
+                self.due[k] = arrives
+                self.slots[k].sender = p.sender
+                self.slots[k].frame = p.frame
+                self.slots[k].sum_frame = p.sum_frame
+                self.slots[k].sum = p.sum
+                let n = min(p.inputs.len, SENT)
+                for j from 0 to n {
+                    self.slots[k].inputs[j] = p.inputs[p.inputs.len - n + j]
+                }
+                self.count[k] = n
+                return
+            }
+        }
+        // Every slot is busy: the packet is lost like any other.
+        self.lost += 1
+    }
+
+    // The packets that arrive by frame `now`, taken out of their slots. The list is new, so call
+    // this inside an `arena { }` that ends before the next frame.
+    pure deliver(var self, now: int) -> list[Packet] {
+        var out: list[Packet] = []
+        for k from 0 to SLOTS {
+            if self.due[k] >= 0 and self.due[k] <= now {
+                if self.count[k] == SENT {
+                    out.add(self.slots[k])
+                } else {
+                    out.add(shortened(self.slots[k], self.count[k]))
+                }
+                self.due[k] = -1
+            }
+        }
+        out
+    }
+}
+
+// A network whose packets take `latency` frames plus up to `jitter` more (each at least 0), losing
+// a share `loss` of them, with its `Rng` seeded with `seed`.
+pub pure new_fake_net(seed: int, latency: int, jitter: int, loss: float) -> FakeNet {
+    var slots: list[Packet] = []
+    var due = array[int](SLOTS)
+    for k from 0 to SLOTS {
+        slots.add(Packet(sender: 0, frame: 0, inputs: array[Input](SENT), sum_frame: 0, sum: 0))
+        due[k] = -1
+    }
+    FakeNet(rng: Rng(seed: i64(seed)), latency: max(latency, 0), jitter: max(jitter, 0), loss: loss, slots: slots,
+        due: due, count: array[int](SLOTS), sent: 0, lost: 0)
+}
+
+// A slot's packet with only its first `n` inputs, for a packet sent with fewer than SENT.
+pure shortened(p: Packet, n: int) -> Packet {
+    var inputs = array[Input](n)
+    for j from 0 to n {
+        inputs[j] = p.inputs[j]
+    }
+    Packet(sender: p.sender, frame: p.frame, inputs: inputs, sum_frame: p.sum_frame, sum: p.sum)
+}

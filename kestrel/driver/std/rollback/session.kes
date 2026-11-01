@@ -116,7 +116,10 @@ pub struct Session[G: Rollback] {
         self.wrong = NONE
     }
 
-    // Goes back to frame f's snapshot and runs the frames again up to the present.
+    // Goes back to frame f's snapshot and runs the frames again up to the present, for `f` from
+    // `now - RING` to `now - 1`. Any other `f` corrupts the present: `f >= now` or `now - f > RING`
+    // has no snapshot in the ring (its slot holds another frame's state), so callers keep `f`
+    // inside the ring, and to change the present, change `game` itself.
     pure run_again(var self, f: int) {
         let present = self.now
         self.game = self.ring[f % RING]
@@ -225,6 +228,41 @@ pub struct Session[G: Rollback] {
     // The newest confirmed frame: both inputs are known for every frame before it, and it has run.
     pure confirmed(self) -> int {
         min(self.known, self.now)
+    }
+
+    // Adds every frame confirmed since the last call to `r`, a replay made by `new_replay` from
+    // this session's start: both players' inputs, and every REPLAY_SUM_EVERY frames the checksum
+    // of the state once that frame ran. Call it once a frame, after `advance`. A frame whose state
+    // has left the ring (a replay begun late, or calls skipped for RING frames) ends the replay
+    // there: nothing more is added, rather than a wrong state. A frame after a wrong guess not yet
+    // rolled back waits for the next call.
+    pure record(self, var r: Replay[G]) {
+        let c = min(self.confirmed(), self.wrong)
+        var f = r.frames()
+        while f < c {
+            // The state once frame f ran is the state at the start of frame n.
+            let n = f + 1
+            let k = f % HIST
+            if n < self.now - RING or self.remote_at[k] != f {
+                return
+            }
+            if self.me == 1 {
+                r.inputs.add(self.local_in[k])
+                r.inputs.add(self.remote_in[k])
+            } else {
+                r.inputs.add(self.remote_in[k])
+                r.inputs.add(self.local_in[k])
+            }
+            if n % REPLAY_SUM_EVERY == 0 {
+                // The state is summed where it is: `checksum(if ...)` would copy it.
+                if n == self.now {
+                    r.sums.add(checksum(self.game))
+                } else {
+                    r.sums.add(checksum(self.ring[n % RING]))
+                }
+            }
+            f = n
+        }
     }
 
     // Once, after the first checksum that differs: where, and both checksums. `none` before and after.

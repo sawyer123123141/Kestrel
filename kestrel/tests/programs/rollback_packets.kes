@@ -1,0 +1,99 @@
+// Packets and inputs at the edges of the rollback library, over a 3-frame wire carried by hand:
+// - Player 1 makes no `local` call at tick 71, so frame 71 has no button held, not the input of
+//   frame 7 (71 - 64) left in the slot: player 1's total is 2 short of the full run's 129 (127 on
+//   session 1; 124 on session 2, whose last 3 frames guess no button for player 1).
+// - A session given its own packet ignores it.
+// - Every packet session 2 has had, given again (duplicates, out of order), changes nothing, and
+//   the tick still costs one rollback.
+use rollback
+use { Input, Rollback, Session, Packet, new_session from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+main() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 130 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        if tick == 90 {
+            let known = p1.known
+            let wrong = p1.wrong
+            p1.remote(p1.outgoing())
+            print("own packet ignored: {p1.known == known and p1.wrong == wrong}")
+        }
+        let rollbacks = p2.rollbacks
+        if tick == 100 {
+            let known = p2.known
+            let wrong = p2.wrong
+            let last_at = p2.last_at
+            for k from 0 to to2.next {
+                p2.remote(to2.packets[to2.next - 1 - k])
+            }
+            print("duplicates change nothing: {p2.known == known and p2.wrong == wrong and p2.last_at == last_at}")
+        }
+        if tick != 71 {
+            p1.local(in1(tick))
+        }
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        if tick == 100 {
+            print("rollbacks at tick 100: {p2.rollbacks - rollbacks}")
+        }
+        send(var to2, p1.outgoing(), tick + 3)
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    print("player 1's total: p1 {p1.game.one} p2 {p2.game.one}")
+    print("same checksum: {p1.sum == p2.sum} compared {p1.compared} {p2.compared}")
+}
+// expect: own packet ignored: true
+// expect: duplicates change nothing: true
+// expect: rollbacks at tick 100: 1
+// expect: player 1's total: p1 127 p2 124
+// expect: same checksum: true compared 120 120

@@ -86,3 +86,85 @@ fn the_harness_turns_poisoning_on_and_a_later_env_can_turn_it_off() {
     cmd.env("KESTREL_POISON", "0");
     assert_eq!(poison(&cmd), Some(OsStr::new("0")));
 }
+
+/// Two rollback sessions over a `FakeNet` that loses 20% of the packets: each packet is made by
+/// `outgoing` inside an `arena { }`, copied into the network's slots, freed with the arena, and
+/// given to `remote` frames later from a list made in another arena.
+const ROLLBACK_PACKETS: &str = "use rollback
+use { Input, Rollback, Session, new_session, new_fake_net from rollback }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons * 3
+    }
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+confirmed(s: Session[Tally]) -> Tally {
+    let c = s.confirmed()
+    if c == s.now { s.game } else { s.ring[c % rollback.RING] }
+}
+
+main() {
+    var p1 = new_session(Tally(one: 0, two: 0), me: 1, delay: 0)
+    var p2 = new_session(Tally(one: 0, two: 0), me: 2, delay: 0)
+    var net = new_fake_net(9, latency: 3, jitter: 3, loss: 0.2)
+    for tick from 0 to 300 {
+        arena {
+            for p in net.deliver(tick) {
+                if p.sender == 1 {
+                    p2.remote(p)
+                } else {
+                    p1.remote(p)
+                }
+            }
+        }
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        arena {
+            net.send(tick, p1.outgoing())
+            net.send(tick, p2.outgoing())
+        }
+    }
+    var straight = Tally(one: 0, two: 0)
+    let c = p1.confirmed()
+    for f from 0 to c {
+        straight.step(in1(f), in2(f))
+    }
+    let a = confirmed(p1)
+    print(c > 280, p2.confirmed() > 280, a.one == straight.one, a.two == straight.two, net.lost > 0)
+    print(p1.compared, p2.compared, p1.desync_at, p2.desync_at)
+}
+";
+
+#[test]
+fn packets_made_in_an_arena_go_through_a_fake_net_to_a_session_under_poisoning() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("poison");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rollback_packets.kes");
+    std::fs::write(&path, ROLLBACK_PACKETS).unwrap();
+    let run = |poison: &str| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_kestrel"));
+        let out = common::hermetic(cmd.arg("run").arg(&path)).env("KESTREL_POISON", poison).output().unwrap();
+        assert!(out.status.success(), "KESTREL_POISON={poison}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let (on, off) = (run("1"), run("0"));
+    let lines: Vec<&str> = on.lines().collect();
+    assert_eq!(lines.first(), Some(&"true true true true true"), "{on}");
+    assert!(lines.get(1).is_some_and(|l| l.ends_with(" -1 -1")), "{on}");
+    assert_eq!(on, off);
+}

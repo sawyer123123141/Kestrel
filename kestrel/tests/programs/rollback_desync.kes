@@ -1,0 +1,123 @@
+// A desync in the rollback library: session 2's game starts one button ahead for player 1, so the
+// two copies differ from the first frame. The checksums of frame 30 differ; each session hears it
+// once, at tick 35 (frame 30 is confirmed at tick 32 and the other's checksum arrives 3 ticks
+// later), and `desync()` gives `none` before and after. `difference` names the field, at the
+// older of the two confirmed frames, and gives `none` for equal states or a frame that has left a
+// session's ring.
+use rollback
+use { Input, Rollback, Session, Packet, new_session, difference from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start(one: int) -> Tally {
+    Tally(one: one, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+// The state at the start of frame `frames`, run straight from `start(one)`.
+straight(one: int, frames: int) -> Tally {
+    var g = start(one)
+    for f from 0 to frames {
+        g.step(in1(f), in2(f))
+    }
+    g
+}
+
+// Prints whether the session's report is the expected line, and counts it.
+hear(name: string, var s: Session[Tally], tick: int, expected: string, var reports: int) {
+    let why = s.desync() else { return }
+    reports += 1
+    print("tick {tick}: {name} reports the desync: {why == expected}")
+}
+
+show_difference(what: string, d: string?) {
+    let text = d else {
+        print("{what}: none")
+        return
+    }
+    print("{what}: {text}")
+}
+
+main() {
+    var p1 = new_session(start(0), me: 1, delay: 0)
+    var p2 = new_session(start(1), me: 2, delay: 0)
+    let a = checksum(straight(0, 30))
+    let b = checksum(straight(1, 30))
+    let line1 = "desync at frame 30: my checksum {a}, theirs {b}"
+    let line2 = "desync at frame 30: my checksum {b}, theirs {a}"
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    var reports1 = 0
+    var reports2 = 0
+    for tick from 0 to 130 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        hear("p1", var p1, tick, line1, var reports1)
+        hear("p2", var p2, tick, line2, var reports2)
+        send(var to2, p1.outgoing(), tick + 3)
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    print("p1: desync at {p1.desync_at} compared {p1.compared} reports {reports1}")
+    print("p2: desync at {p2.desync_at} compared {p2.compared} reports {reports2}")
+    show_difference("p1 and p2", difference(p1, p2))
+    show_difference("p2 and p1", difference(p2, p1))
+    show_difference("p1 and p1", difference(p1, p1))
+
+    // A session alone: nothing confirmed past frame 0, which has left p1's ring.
+    var alone = new_session(start(0), me: 1, delay: 0)
+    for tick from 0 to 20 {
+        alone.local(in1(tick))
+        alone.advance()
+    }
+    show_difference("p1 and a session alone", difference(p1, alone))
+}
+// expect: tick 35: p1 reports the desync: true
+// expect: tick 35: p2 reports the desync: true
+// expect: p1: desync at 30 compared 0 reports 1
+// expect: p2: desync at 30 compared 0 reports 1
+// expect: p1 and p2: at frame 127: one: 126 and 127
+// expect: p2 and p1: at frame 127: one: 127 and 126
+// expect: p1 and p1: none
+// expect: p1 and a session alone: none

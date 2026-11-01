@@ -7,7 +7,6 @@
 // frame, given both players' inputs in player order (`one` is player 1's on both machines). It
 // must be `pure`, and it can promise more on the method itself:
 //
-//     use rollback
 //     use { Input, Rollback, Session, new_session from rollback }
 //     struct Game: Rollback {
 //         ...
@@ -21,12 +20,15 @@
 // send (made in the current arena: call it inside an `arena { }` or send it at once), and
 // `desync()` to hear about a difference. `s.game` is the present state, to draw. When the input
 // reads the present state (a bot), call `catch_up()` first, so it reads the corrected state.
+// `record(var r)` adds the confirmed frames to a `Replay` that `check_replay` runs again,
+// `difference(a, b)` says where two sessions in one process differ, and `FakeNet` stands in for a
+// network in tests and demos.
 //
 // `me` is 2 for the second player and 1 for anything else. `delay` is frames of input delay,
 // from 0 to `MAX_DELAY` (others are clamped): this player's input is for frame `now + delay`, which
 // hides that many frames of latency, so there are fewer rollbacks; the first `delay` frames have
-// no button held on both machines. (A library can't yet stop a program with a message, so these
-// rules are kept rather than refused.)
+// no button held on both machines. (A library can't yet stop a program with a message, so values
+// out of range are clamped rather than refused.)
 //
 // `desync()` gives the report once; Kestrel has no `if let`, so read it in a helper:
 //

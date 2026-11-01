@@ -1,0 +1,159 @@
+// The rollback library's `FakeNet` with Pong's seed and numbers (6 frames, 2 of jitter, 5% lost)
+// loses the same packets and delivers each on the same frame, in the same order, as the network
+// Pong used before it moved onto the library: the same packets go through both for 3,000 frames.
+// `Net` below is a copy of `demos/pong/net.kes` (with its `Pad` and `still` from `game.kes`), kept
+// here since Pong now uses `FakeNet`.
+use rollback
+use { FakeNet, new_fake_net from rollback }
+use { Rng from random }
+
+pub struct Pad {
+    up: bool
+    down: bool
+}
+
+pub pure still() -> Pad {
+    Pad(up: false, down: false)
+}
+
+// From here to `new_net`, Pong's net.kes.
+pub let DELAY = 6
+pub let JITTER = 2
+pub let LOSS = 0.05
+pub let SENT = 8
+let SLOTS = 32
+let NET_SEED = 20261027
+
+pub struct Packet {
+    sender: int
+    frame: int
+    inputs: [Pad]
+    sum_frame: int
+    sum: i64
+}
+
+pub struct Net {
+    rng: Rng
+    slots: list[Packet]
+    due: [int]
+    sent: int
+    lost: int
+
+    pure send(var self, now: int, sender: int, frame: int, history: [Pad], sum_frame: int, sum: i64) {
+        self.sent += 1
+        if self.rng.randf() < LOSS {
+            self.lost += 1
+            return
+        }
+        let arrives = now + DELAY + self.rng.randi_range(0, JITTER)
+        for k from 0 to SLOTS {
+            if self.due[k] < 0 {
+                self.due[k] = arrives
+                self.slots[k].sender = sender
+                self.slots[k].frame = frame
+                self.slots[k].sum_frame = sum_frame
+                self.slots[k].sum = sum
+                for j from 0 to SENT {
+                    let f = frame - SENT + 1 + j
+                    self.slots[k].inputs[j] = if f >= 0 { history[f % history.len] } else { still() }
+                }
+                return
+            }
+        }
+        self.lost += 1
+    }
+
+    pure deliver(var self, now: int) -> list[Packet] {
+        var out: list[Packet] = []
+        for k from 0 to SLOTS {
+            if self.due[k] == now {
+                out.add(self.slots[k])
+                self.due[k] = -1
+            }
+        }
+        out
+    }
+}
+
+pub pure new_net() -> Net {
+    var slots: list[Packet] = []
+    var due = array[int](SLOTS)
+    for k from 0 to SLOTS {
+        slots.add(Packet(sender: 0, frame: 0, inputs: array[Pad](SENT), sum_frame: 0, sum: 0))
+        due[k] = -1
+    }
+    Net(rng: Rng(seed: NET_SEED), slots: slots, due: due, sent: 0, lost: 0)
+}
+// The end of Pong's net.kes.
+
+pad(sender: int, f: int) -> Pad {
+    Pad(up: (f + sender) % 3 == 0, down: (f * sender) % 5 == 1)
+}
+
+as_input(p: Pad) -> rollback.Input {
+    rollback.Input(buttons: (if p.up { 1 } else { 0 }) + (if p.down { 2 } else { 0 }))
+}
+
+// Whether a packet through Pong's network and one through `FakeNet` are the same packet.
+same(a: Packet, b: rollback.Packet) -> bool {
+    var ok = a.sender == b.sender and a.frame == b.frame and a.sum_frame == b.sum_frame and a.sum == b.sum
+    ok = ok and a.inputs.len == b.inputs.len
+    if ok {
+        for j from 0 to a.inputs.len {
+            ok = ok and as_input(a.inputs[j]).buttons == b.inputs[j].buttons
+        }
+    }
+    ok
+}
+
+main() {
+    var old = new_net()
+    var net = new_fake_net(20261027, latency: 6, jitter: 2, loss: 0.05)
+    var history1 = array[Pad](64)
+    var history2 = array[Pad](64)
+    var delivered = 0
+    var differ = 0
+    for tick from 0 to 3000 {
+        arena {
+            let a = old.deliver(tick)
+            let b = net.deliver(tick)
+            if a.len != b.len {
+                differ += 1
+            } else {
+                for k from 0 to a.len {
+                    if not same(a[k], b[k]) {
+                        differ += 1
+                    }
+                }
+            }
+            delivered += a.len
+        }
+        history1[tick % 64] = pad(1, tick)
+        history2[tick % 64] = pad(2, tick)
+        let sum_frame = tick / 30 * 30
+        old.send(tick, 1, tick, history1, sum_frame, i64(tick) * 7)
+        old.send(tick, 2, tick, history2, sum_frame, i64(tick) * 11)
+        arena {
+            net.send(tick, packet(1, tick, history1, sum_frame, i64(tick) * 7))
+            net.send(tick, packet(2, tick, history2, sum_frame, i64(tick) * 11))
+        }
+    }
+    print("sent {old.sent} {net.sent}")
+    print("lost the same: {old.lost == net.lost}, some lost: {old.lost > 0}")
+    print("delivered some: {delivered > 5000}, every delivery the same: {differ == 0}")
+}
+
+// The library's packet with the same inputs as Pong's network would read from `history`.
+packet(sender: int, frame: int, history: [Pad], sum_frame: int, sum: i64) -> rollback.Packet {
+    var inputs = array[rollback.Input](SENT)
+    for j from 0 to SENT {
+        let f = frame - SENT + 1 + j
+        if f >= 0 {
+            inputs[j] = as_input(history[f % history.len])
+        }
+    }
+    rollback.Packet(sender: sender, frame: frame, inputs: inputs, sum_frame: sum_frame, sum: sum)
+}
+// expect: sent 6000 6000
+// expect: lost the same: true, some lost: true
+// expect: delivered some: true, every delivery the same: true

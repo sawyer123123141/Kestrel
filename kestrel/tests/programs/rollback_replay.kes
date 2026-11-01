@@ -1,0 +1,116 @@
+// A replay in the rollback library: each session records its confirmed frames, 300 of them by the
+// last tick. The two replays are the same (inputs in player order on both). It goes through
+// `to_bytes` and back: 13 header bytes, the 20-byte start, 600 inputs of 12 bytes behind a length,
+// and 5 checksums behind a length, 7281 bytes. Run again it matches; a changed input shows at the
+// next checksum frame. A replay started after its first frames left the ring records nothing.
+use rollback
+use { Input, Rollback, Session, Packet, Replay, new_session, new_replay, check_replay from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+show_difference(what: string, d: string?) {
+    let text = d else {
+        print("{what}: none")
+        return
+    }
+    print("{what}: {text}")
+}
+
+main() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var r1 = new_replay(start())
+    var r2 = new_replay(start())
+    var late = new_replay(start())
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 303 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        p1.record(var r1)
+        p2.record(var r2)
+        if tick >= 200 {
+            p2.record(var late)
+        }
+        send(var to2, p1.outgoing(), tick + 3)
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    print("confirmed {p1.confirmed()} {p2.confirmed()}")
+    print("frames {r1.frames()} {r2.frames()} inputs {r1.inputs.len} sums {r1.sums.len}")
+    show_difference("the two replays", first_difference(r1, r2))
+    print("late replay frames {late.frames()}")
+
+    let bytes = to_bytes(r1)
+    print("bytes {bytes.len}")
+    let back = from_bytes[Replay[Tally]](bytes) else {
+        print("the replay didn't load")
+        return
+    }
+    show_difference("loaded and recorded", first_difference(back, r1))
+    print("check {check_replay(back)}")
+
+    var changed = back
+    changed.inputs[61] = Input(buttons: changed.inputs[61].buttons + 1)
+    print("frame 30 changed: check {check_replay(changed)}")
+    var later = back
+    later.inputs[200] = Input(buttons: 7)
+    print("frame 100 changed: check {check_replay(later)}")
+    print("empty: frames {new_replay(start()).frames()} check {check_replay(new_replay(start()))}")
+}
+// expect: confirmed 300 300
+// expect: frames 300 300 inputs 600 sums 5
+// expect: the two replays: none
+// expect: late replay frames 0
+// expect: bytes 7281
+// expect: loaded and recorded: none
+// expect: check -1
+// expect: frame 30 changed: check 60
+// expect: frame 100 changed: check 120
+// expect: empty: frames 0 check -1

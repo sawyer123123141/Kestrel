@@ -358,20 +358,24 @@ mod tests {
             ("<builtin>/rollback/replay.kes", "rollback", "rollback/replay.kes"),
             ("<builtin>/rollback/fakenet.kes", "rollback", "rollback/fakenet.kes"),
             ("geom.kes", "geom", "geom.kes"),
+            // `FakeNet`'s `Rng`.
+            ("<builtin>/random.kes", "random", "random.kes"),
         ]);
         assert!(l.files[1..5].iter().all(|f| f.builtin));
         // One module: the entry's and `geom`'s clauses both name it, by module index, and `geom`
-        // is the module after it though it is the sixth file.
-        assert_eq!(l.modules.len(), 3);
-        assert_eq!(l.first_file, [0, 1, 5]);
+        // is the module after it though it is the sixth file. `random` comes last, used by
+        // `rollback/fakenet.kes`.
+        assert_eq!(l.modules.len(), 4);
+        assert_eq!(l.first_file, [0, 1, 5, 6]);
         assert_eq!(l.modules[0].resolved, [Some(1), Some(2)]);
+        assert_eq!(l.modules[1].resolved, [Some(3)]);
         assert_eq!(l.modules[2].resolved, [Some(1)]);
-        assert_eq!((l.modules[1].name.as_str(), l.modules[2].name.as_str()), ("rollback", "geom"));
-        assert_eq!(l.builtins, ["rollback"]);
+        assert_eq!((l.modules[1].name.as_str(), l.modules[2].name.as_str(), l.modules[3].name.as_str()), ("rollback", "geom", "random"));
+        assert_eq!(l.builtins, ["rollback", "random"]);
         // Its items are every part's, and its ids count to the last part's.
         let rollback = &l.modules[1];
         let names: Vec<&str> = rollback.program.items.iter().filter_map(|i| if let Item::Struct(s) = i { Some(s.name.as_str()) } else { None }).collect();
-        assert_eq!(names, ["Input", "Packet", "Session"]);
+        assert_eq!(names, ["Input", "Packet", "Session", "Replay", "FakeNet"]);
         let counts = l.files[1..5].iter().fold((l.modules[0].program.expr_count, l.modules[0].program.bind_count), |(e, b), f| {
             let (p, _) = parse_at(&f.src, f.base, e, b);
             (p.expr_count, p.bind_count)

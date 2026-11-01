@@ -1,1 +1,69 @@
-// `Replay`, `new_replay`, `check_replay` and `difference` come here (the rollback library round, task 3).
+// A replay: a game's start state, both players' confirmed inputs for every frame, and the
+// confirmed state's checksum every REPLAY_SUM_EVERY frames. A session adds to it with
+// `record`, once a frame after `advance`; running the inputs again from the start must give the
+// same checksums, since `step` is deterministic, and `check_replay` does that. `to_bytes(r)` and
+// `from_bytes[Replay[Game]](b)` save and load one.
+//
+//     var r = new_replay(start)
+//     ... each frame, after advance: s.record(var r)
+//     file.write("game.replay", to_bytes(r))
+//
+// The lists grow by 24 bytes a frame and 8 every REPLAY_SUM_EVERY frames, in the current arena:
+// keep the replay outside any `arena { }`.
+
+pub struct Replay[G: Rollback] {
+    // The state at the start of frame 0.
+    start: G
+    // Frame f's inputs: player 1's at 2f, player 2's at 2f + 1.
+    inputs: list[Input]
+    // The checksum of the state once frame n - 1 has run, for n = REPLAY_SUM_EVERY, twice that, ...
+    sums: list[i64]
+
+    // Frames recorded.
+    pure frames(self) -> int {
+        self.inputs.len / 2
+    }
+}
+
+// An empty replay of a game that starts as `start`.
+pub pure new_replay[G: Rollback](start: G) -> Replay[G] {
+    Replay(start: start, inputs: [], sums: [])
+}
+
+// Runs the replay's inputs again from a copy of its start, and gives the first frame whose
+// checksum differs from the one recorded (or has none recorded), or -1 when every one matches.
+pub pure check_replay[G: Rollback](r: Replay[G]) -> int {
+    var g = r.start
+    for f from 0 to r.frames() {
+        g.step(r.inputs[2 * f], r.inputs[2 * f + 1])
+        let n = f + 1
+        if n % REPLAY_SUM_EVERY == 0 {
+            let k = n / REPLAY_SUM_EVERY - 1
+            if k >= r.sums.len or checksum(g) != r.sums[k] {
+                return n
+            }
+        }
+    }
+    -1
+}
+
+// For two sessions in one process: where their states first differ at the older of their
+// confirmed frames, as `at frame 330: ball.x: 401.5 and 401.501`. `none` when they are the same, or
+// when that frame has left either session's ring.
+pub pure difference[G: Rollback](a: Session[G], b: Session[G]) -> string? {
+    // A frame after a wrong guess not yet rolled back isn't final yet.
+    let f = min(min(a.confirmed(), b.confirmed()), min(a.wrong, b.wrong))
+    if f < a.now - RING or f < b.now - RING {
+        return none
+    }
+    // Each state is compared where it is: the present, or its snapshot.
+    let d = if f == a.now {
+        if f == b.now { first_difference(a.game, b.game) } else { first_difference(a.game, b.ring[f % RING]) }
+    } else if f == b.now {
+        first_difference(a.ring[f % RING], b.game)
+    } else {
+        first_difference(a.ring[f % RING], b.ring[f % RING])
+    }
+    let text = d else { return none }
+    "at frame {f}: {text}"
+}

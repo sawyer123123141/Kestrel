@@ -1,0 +1,133 @@
+// Lost packets in the rollback library. First a hand-carried wire (3 frames) drops the 5 packets
+// session 1 sends at ticks 50 to 54: the packet of tick 55 carries frames 48 to 55, so session 2
+// gets every input back, rolls back 8 frames (from tick 58 to frame 50) and never waits. Then a
+// `FakeNet` loses 30% of the packets: both sessions still end with the straight run's state, and
+// their checksums agree.
+use rollback
+use { Input, Rollback, Session, Packet, FakeNet, new_session, new_fake_net from rollback }
+use { Rng from random }
+
+struct Tally: Rollback {
+    one: int
+    two: int
+    noise: int
+    rng: Rng
+
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.one += one.buttons
+        self.two += two.buttons
+        self.noise += self.rng.randi_range(0, 9)
+    }
+}
+
+start() -> Tally {
+    Tally(one: 0, two: 0, noise: 0, rng: Rng(seed: 5))
+}
+
+in1(f: int) -> Input {
+    Input(buttons: f % 3)
+}
+
+in2(f: int) -> Input {
+    Input(buttons: (f / 10) % 2)
+}
+
+struct Wire {
+    packets: list[Packet]
+    due: list[int]
+    next: int
+}
+
+send(var w: Wire, p: Packet, due: int) {
+    w.packets.add(p)
+    w.due.add(due)
+}
+
+deliver(var w: Wire, var s: Session[Tally], tick: int) {
+    while w.next < w.packets.len and w.due[w.next] <= tick {
+        s.remote(w.packets[w.next])
+        w.next += 1
+    }
+}
+
+straight(frames: int) -> Tally {
+    var g = start()
+    for f from 0 to frames {
+        g.step(in1(f), in2(f))
+    }
+    g
+}
+
+confirmed_sum(s: Session[Tally]) -> i64 {
+    let c = s.confirmed()
+    if c == s.now { checksum(s.game) } else { checksum(s.ring[c % rollback.RING]) }
+}
+
+show(name: string, s: Session[Tally]) {
+    print("{name}: deepest {s.deepest} waits {s.waits} compared {s.compared} desync at {s.desync_at}")
+    print("{name}: confirmed state is the straight run's: {confirmed_sum(s) == checksum(straight(s.confirmed()))}")
+}
+
+dropped() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var to1 = Wire(packets: [], due: [], next: 0)
+    var to2 = Wire(packets: [], due: [], next: 0)
+    for tick from 0 to 130 {
+        deliver(var to1, var p1, tick)
+        deliver(var to2, var p2, tick)
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        if tick < 50 or tick > 54 {
+            send(var to2, p1.outgoing(), tick + 3)
+        }
+        send(var to1, p2.outgoing(), tick + 3)
+    }
+    show("p1", p1)
+    show("p2", p2)
+}
+
+lossy() {
+    var p1 = new_session(start(), me: 1, delay: 0)
+    var p2 = new_session(start(), me: 2, delay: 0)
+    var net = new_fake_net(11, latency: 4, jitter: 2, loss: 0.3)
+    for tick from 0 to 600 {
+        arena {
+            for p in net.deliver(tick) {
+                if p.sender == 1 {
+                    p2.remote(p)
+                } else {
+                    p1.remote(p)
+                }
+            }
+        }
+        p1.local(in1(tick))
+        p1.advance()
+        p2.local(in2(tick))
+        p2.advance()
+        arena {
+            net.send(tick, p1.outgoing())
+            net.send(tick, p2.outgoing())
+        }
+    }
+    print("lossy: sent {net.sent}, lost some: {net.lost > 0}, about 30%: {net.lost > 300 and net.lost < 420}")
+    print("lossy: confirmed past 590: {p1.confirmed() > 590} {p2.confirmed() > 590}")
+    print("lossy: compared past 540: {p1.compared > 540} {p2.compared > 540} desync at {p1.desync_at} {p2.desync_at}")
+    print("lossy: confirmed states are the straight run's: {confirmed_sum(p1) == checksum(straight(p1.confirmed()))} {confirmed_sum(p2) == checksum(straight(p2.confirmed()))}")
+}
+
+main() {
+    dropped()
+    lossy()
+}
+// expect: p1: deepest 3 waits 0 compared 120 desync at -1
+// expect: p1: confirmed state is the straight run's: true
+// expect: p2: deepest 8 waits 0 compared 120 desync at -1
+// expect: p2: confirmed state is the straight run's: true
+// expect: lossy: sent 1200, lost some: true, about 30%: true
+// expect: lossy: confirmed past 590: true true
+// expect: lossy: compared past 540: true true desync at -1 -1
+// expect: lossy: confirmed states are the straight run's: true true

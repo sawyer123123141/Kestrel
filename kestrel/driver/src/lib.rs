@@ -68,7 +68,7 @@ fn modified(path: &Path) -> Option<SystemTime> {
 pub struct Compiled {
     pub module: kestrel_kir::Module,
     /// The entry file first, then each module it uses. A built-in module's
-    /// path is `<builtin>/name.kes`, and it has no modification time.
+    /// parts are `<builtin>/<part>` (`<builtin>/rollback/session.kes`), with no modification time.
     pub files: Vec<SourceFile>,
     /// The built-in modules (`window`, `draw`, `input`) the program uses, in
     /// the order they were loaded. They need the window library to run.
