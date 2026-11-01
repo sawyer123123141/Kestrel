@@ -88,11 +88,13 @@ main() {
 };
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_voxel_worlds_top_faces_show_from_above_under_the_jit() {
     smoke(How::Jit, &VOXEL_COLUMN);
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
 fn the_voxel_worlds_top_faces_show_from_above_in_an_exe() {
     smoke(How::Exe, &VOXEL_COLUMN);
 }

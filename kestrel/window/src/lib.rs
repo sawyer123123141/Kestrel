@@ -2,6 +2,11 @@
 //!
 //! A staticlib of this crate holds `kestrel-runtime`'s `kestrel_rt_*` symbols as
 //! well as raylib's, so a built program links this one library.
+//!
+//! Only Windows builds have the window for now: on any other platform this crate is empty and
+//! raylib is not compiled, and `kestrel` refuses programs that use `window`, `draw`, `draw3d` or
+//! `input` with a sentence saying so.
+#![cfg(windows)]
 
 // Naming the crate makes rustc link it, so its `kestrel_rt_*` exports land in
 // this crate's staticlib.

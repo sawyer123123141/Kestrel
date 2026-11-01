@@ -88,6 +88,10 @@ fn guarded(build: Build, job: &Job, started: Instant, saved: Option<SystemTime>)
 /// Compiles `job` for the reloading host (a reloadable program comes without its generated `main`).
 fn build(job: &Job, started: Instant, saved: Option<SystemTime>) -> Outcome {
     let (compiled, warnings) = compile_for_reload(&job.path, job.style, job.release)?;
+    if let Err(e) = crate::has_window_for(&compiled.builtins) {
+        return Err(CompileFailure { text: format!("kestrel: {e}
+"), files: compiled.files });
+    }
     let natives = crate::natives();
     match JitProgram::compile_with(&compiled.module, job.opts, &natives) {
         Ok(program) => Ok(Built { program, compiled, warnings, started, saved }),

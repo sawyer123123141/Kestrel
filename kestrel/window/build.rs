@@ -3,10 +3,18 @@
 //! There is no bindgen: the functions Kestrel uses are declared by hand in
 //! `src/raylib.rs`. Audio is switched off; the models module is on, for meshes, and JPG loading
 //! is on, for textures (PNG and BMP are on in raylib's defaults).
+//!
+//! Only Windows builds have the window: elsewhere the crate is empty (see `src/lib.rs`), so
+//! raylib is not compiled at all.
 
 fn main() {
     println!("cargo:rerun-if-changed=raylib");
     println!("cargo:rerun-if-changed=build.rs");
+
+    // The build script runs on the host, so ask for the target's OS.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
 
     cc::Build::new()
         .files(
@@ -23,10 +31,7 @@ fn main() {
         .warnings(false)
         .compile("raylib");
 
-    // The build script runs on the host, so ask for the target's OS.
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        for lib in ["opengl32", "gdi32", "winmm", "user32", "shell32"] {
-            println!("cargo:rustc-link-lib=dylib={lib}");
-        }
+    for lib in ["opengl32", "gdi32", "winmm", "user32", "shell32"] {
+        println!("cargo:rustc-link-lib=dylib={lib}");
     }
 }

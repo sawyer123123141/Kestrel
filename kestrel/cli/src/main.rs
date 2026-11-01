@@ -171,6 +171,10 @@ fn run() -> ExitCode {
     if !proved.ok {
         return ExitCode::from(1);
     }
+    if let Err(e) = has_window_for(&compiled.builtins) {
+        eprintln!("kestrel: {e}");
+        return ExitCode::from(2);
+    }
     let opts = Options {
         checked_arith: !args.release,
         verify_proofs: proofs_checked(std::env::var_os("KESTREL_CHECK_PROOFS").as_deref()),
@@ -180,7 +184,7 @@ fn run() -> ExitCode {
         "run" | "replay" if !has_sse41() => Err(NO_SSE41.to_string()),
         "run" | "replay" => {
             // The program's relative paths (`file`, `window.screenshot`, textures) are read from its own folder.
-            kestrel_window::set_program_dir(Path::new(&args.path).parent().unwrap_or(Path::new("")));
+            kestrel_runtime::natives::paths::set_program_dir(Path::new(&args.path).parent().unwrap_or(Path::new("")));
             // `args.program()` is the `.kes` path, and `args.all()` the words meant for the program.
             kestrel_runtime::start::set_args(args.path.clone(), args.program_args.clone());
             JitProgram::compile_with(&compiled.module, opts, &natives()).map_err(internal_error).and_then(|p| {
@@ -207,8 +211,37 @@ fn run() -> ExitCode {
 
 /// The natives a program is compiled with: the window crate's, then the runtime's own (`file`,
 /// `time`, `args`, `env`).
+#[cfg(windows)]
 fn natives() -> Vec<(&'static str, *const u8)> {
     kestrel_window::symbols().into_iter().chain(kestrel_runtime::natives::native_symbols()).collect()
+}
+
+/// The natives a program is compiled with: the runtime's own (`file`, `time`, `args`, `env`).
+/// Only Windows builds have the window crate's.
+#[cfg(not(windows))]
+fn natives() -> Vec<(&'static str, *const u8)> {
+    kestrel_runtime::natives::native_symbols()
+}
+
+/// Whether this build of `kestrel` has the window, drawing and input natives (raylib). Only the
+/// Windows build has them for now.
+const HAS_WINDOW: bool = cfg!(windows);
+
+/// What `run`, `replay` and `build` say about a window program when this build has no window.
+pub(crate) const NO_WINDOW: &str = "this build of kestrel has no window, so it can't run or build a program that uses `window`, `draw`, `draw3d` or `input`; only the Windows build has them for now";
+
+/// Refuses a program that uses `window`, `draw`, `draw3d` or `input` (its built-in modules are
+/// `builtins`) when this build of `kestrel` has no window.
+fn has_window_for(builtins: &[&str]) -> Result<(), String> {
+    window_check(HAS_WINDOW, builtins)
+}
+
+fn window_check(has_window: bool, builtins: &[&str]) -> Result<(), String> {
+    if !has_window && builtins.iter().any(|name| kestrel_driver::needs_window(name)) {
+        Err(NO_WINDOW.to_string())
+    } else {
+        Ok(())
+    }
 }
 
 /// Whether `KESTREL_CHECK_PROOFS=1` is set: codegen then keeps every check range analysis proved,

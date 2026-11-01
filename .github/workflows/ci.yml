@@ -1,0 +1,46 @@
+# Builds and tests Kestrel on Linux x64 and Windows x64.
+#
+# Only the Windows build has the window (raylib): on Linux the window crate is empty, `kestrel`
+# refuses programs that use `window`, `draw`, `draw3d` or `input`, and the tests that need a window
+# are ignored or skip those programs. No job opens a window: the program tests run headless, and
+# KESTREL_TEST_NO_WINDOW=1 skips the smoke tests that would open a hidden one (the runners have no
+# OpenGL 3.3 driver).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      KESTREL_HEADLESS_QUIET: "1"
+      KESTREL_TEST_NO_WINDOW: "1"
+    defaults:
+      run:
+        working-directory: kestrel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kestrel
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --no-fail-fast

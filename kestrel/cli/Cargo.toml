@@ -13,9 +13,10 @@ kestrel-check.workspace = true
 kestrel-kir.workspace = true
 kestrel-codegen.workspace = true
 kestrel-driver.workspace = true
-kestrel-window.workspace = true
 kestrel-runtime.workspace = true
 
+# Only Windows builds have the window (raylib); elsewhere `kestrel` refuses window programs.
 [target.'cfg(windows)'.dependencies]
+kestrel-window.workspace = true
 find-msvc-tools.workspace = true
 

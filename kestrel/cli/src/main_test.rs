@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use super::{check_record, lib_for, output_path, parse_args, proofs_checked, without_bom, Lib};
+use super::{check_record, lib_for, output_path, parse_args, proofs_checked, window_check, without_bom, Lib, NO_WINDOW};
 
 fn args(list: &[&str]) -> Option<super::Args> {
     parse_args(list.iter().map(|s| s.to_string()).collect())
@@ -170,4 +170,15 @@ fn a_panic_while_compiling_a_save_is_not_fatal() {
     assert!(out.status.success(), "{stderr}");
     assert!(stderr.contains("kestrel: internal compiler error: ") && stderr.contains("bang"), "{stderr}");
     assert!(stderr.contains("the game kept running"), "{stderr}");
+}
+
+#[test]
+fn a_build_without_the_window_refuses_only_window_programs() {
+    for name in ["window", "draw", "draw3d", "input"] {
+        assert_eq!(window_check(false, &["random", name]), Err(NO_WINDOW.to_string()), "{name}");
+        assert_eq!(window_check(true, &["random", name]), Ok(()), "{name}");
+    }
+    for builtins in [&[][..], &["random", "file", "time", "args", "env", "rollback"][..]] {
+        assert_eq!(window_check(false, builtins), Ok(()));
+    }
 }

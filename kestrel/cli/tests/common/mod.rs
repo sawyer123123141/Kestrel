@@ -11,6 +11,27 @@ use std::io::Read;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+/// Only Windows builds of `kestrel` have the window (raylib) for now. Elsewhere a test that needs
+/// one is ignored with `#[cfg_attr(not(windows), ignore = "no window on this platform")]`, and a
+/// test that runs many programs skips the window ones (`no_window`).
+pub const HAS_WINDOW: bool = cfg!(windows);
+
+/// The start of what `kestrel` says when it refuses a window program because it has no window.
+pub const NO_WINDOW: &str = "this build of kestrel has no window";
+
+/// Whether `out` is `kestrel` refusing a program because this build has no window: the test skips
+/// that program. Never on Windows, whose build has the window.
+pub fn no_window(out: &Output) -> bool {
+    !HAS_WINDOW && out.status.code() == Some(2) && String::from_utf8_lossy(&out.stderr).contains(NO_WINDOW)
+}
+
+/// Prints which programs a test skipped because this build has no window.
+pub fn report_skipped(test: &str, skipped: &[String]) {
+    if !skipped.is_empty() {
+        println!("{test}: skipped {} window programs, no window on this platform: {}", skipped.len(), skipped.join(", "));
+    }
+}
+
 /// Takes every `KESTREL_*` variable out of the child's environment, so nothing left in the
 /// shell that runs `cargo test` (`KESTREL_HEADLESS`, `KESTREL_HIDDEN`, `KESTREL_THREADS`,
 /// `KESTREL_ARENA_REPORT`, ...) changes what a test sees. Then it sets `KESTREL_POISON=1`, so
