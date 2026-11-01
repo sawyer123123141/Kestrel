@@ -5,6 +5,10 @@
 //!
 //! A run writes `pong.replay` next to the program, so every run here is of a copy of the demo in
 //! the test's own scratch folder: never in `demos/pong`, and never two runs writing one file.
+//!
+//! Pong runs on the built-in `rollback` module. Its headless output is compared byte for byte with
+//! `pong_expected.txt` and `pong_expected_desync.txt`, what Pong printed before it moved onto the
+//! library (when it had its own `peer.kes`, `net.kes` and `replay.kes`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,8 +20,15 @@ mod common;
 use common::hermetic;
 use common::session::Session;
 
-/// The demo's five files. `pong.kes` is the program; the others are its modules.
-const FILES: [&str; 5] = ["pong.kes", "game.kes", "net.kes", "peer.kes", "replay.kes"];
+/// The demo's two files. `pong.kes` is the program; `game.kes` is its module.
+const FILES: [&str; 2] = ["pong.kes", "game.kes"];
+
+/// A reference output saved beside this test. Git may check a text file out with CRLF line ends,
+/// while Pong prints LF, so the file's CRLFs are read as LFs.
+fn expected(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join(name);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display())).replace("\r\n", "\n")
+}
 
 /// The demo's folder.
 fn demo_dir() -> PathBuf {
@@ -35,9 +46,24 @@ fn scratch(name: &str) -> PathBuf {
 
 /// Copies the demo's files into `dir`, and gives the path of its program there.
 fn copy_demo(dir: &Path) -> PathBuf {
+    copy_changed(dir, "", "")
+}
+
+/// Copies the demo's files into `dir` with each `from` replaced by `to` (nothing when `from` is
+/// empty), checks that `from` was there exactly once across the files, and gives the path of its
+/// program there.
+fn copy_changed(dir: &Path, from: &str, to: &str) -> PathBuf {
+    let mut replaced = 0;
     for file in FILES {
-        fs::copy(demo_dir().join(file), dir.join(file)).unwrap_or_else(|e| panic!("copy {file}: {e}"));
+        let src = fs::read_to_string(demo_dir().join(file)).unwrap_or_else(|e| panic!("read {file}: {e}"));
+        if from.is_empty() {
+            fs::write(dir.join(file), src).unwrap();
+        } else {
+            replaced += src.matches(from).count();
+            fs::write(dir.join(file), src.replace(from, to)).unwrap();
+        }
     }
+    assert!(from.is_empty() || replaced == 1, "the demo should declare `{from}` once");
     dir.join("pong.kes")
 }
 
@@ -99,6 +125,7 @@ fn pong_runs_headless_and_the_three_builds_agree() {
     let release = stdout(&ok(headless(&mut Command::new(build(&scratch("release"), true)), 600), "release exe"));
     assert_eq!(checked, jit, "the checked exe printed something else than the JIT");
     assert_eq!(release, jit, "the release exe printed something else than the JIT");
+    assert_eq!(jit, expected("pong_expected.txt"), "Pong printed something else than before it moved onto the library");
 
     // `frames 600 confirmed <F> checksum <C>`, then `replay matches (<F> frames)`.
     let words = line_after(&jit, "frames 600 confirmed ");
@@ -131,22 +158,16 @@ fn pong_rolls_back_and_recovers_lost_packets() {
 
 #[test]
 fn pong_reports_an_injected_desync() {
-    let dir = scratch("desync");
-    let mut replaced = 0;
-    for file in FILES {
-        let src = fs::read_to_string(demo_dir().join(file)).unwrap_or_else(|e| panic!("read {file}: {e}"));
-        replaced += src.matches("let DESYNC_AT = -1").count();
-        fs::write(dir.join(file), src.replace("let DESYNC_AT = -1", "let DESYNC_AT = 300")).unwrap();
-    }
-    assert_eq!(replaced, 1, "the demo should declare `let DESYNC_AT = -1` once");
-    let out = stdout(&run(&dir.join("pong.kes"), 600));
+    let main = copy_changed(&scratch("desync"), "let DESYNC_AT = -1", "let DESYNC_AT = 300");
+    let out = stdout(&run(&main, 600));
     assert!(out.lines().any(|l| l == "peers differ at frame 330"), "the desync wasn't reported at frame 330:\n{out}");
     assert!(!out.contains("replay matches"), "the run should stop at the desync:\n{out}");
+    assert_eq!(out, expected("pong_expected_desync.txt"), "Pong printed something else than before it moved onto the library");
 }
 
-/// The program arena's size that a headless run of `frames` frames reports.
+/// The program arena's size that a headless run of `frames` frames reports, with no replay kept.
 fn arena_bytes(frames: u32) -> u64 {
-    let main = copy_demo(&scratch(&format!("arena_{frames}")));
+    let main = copy_changed(&scratch(&format!("arena_{frames}")), "let RECORD = true", "let RECORD = false");
     let out = ok(headless(kestrel().arg("run").arg(main), frames).env("KESTREL_ARENA_REPORT", "1"), "run");
     let stderr = String::from_utf8_lossy(&out.stderr);
     let line = stderr
@@ -159,11 +180,10 @@ fn arena_bytes(frames: u32) -> u64 {
 #[test]
 fn pong_memory_stays_flat() {
     // Everything is a ring or lives in a frame's `arena { }`, except the replay, which keeps
-    // every confirmed frame's inputs and a checksum every 60 frames: about 12,400 bytes at 3,000
-    // frames (twice that with the buffers its lists left behind when they doubled), which still
-    // fit in the arena's first block. So both runs report the same size (65,536 bytes today),
-    // and any other growth with the run's length shows. The replay file's bytes are made once,
-    // at the end, in an `arena { }` of their own, so they are not in the program arena either.
+    // every confirmed frame's inputs and a checksum every 60 frames: 24 bytes a frame and 8 a
+    // second, the documented cost of recording. So both runs keep no replay (`RECORD = false`),
+    // they measure the sessions and the network alone, and both report the same size; any growth
+    // with the run's length shows.
     let (short, long) = (arena_bytes(600), arena_bytes(3000));
     assert_eq!(long, short, "the program arena grew from {short} bytes (600 frames) to {long} bytes (3,000 frames)");
 }
@@ -195,9 +215,10 @@ fn check_file(main: &Path, file: &Path) -> String {
     stdout(&ok(headless(kestrel().arg("run").arg(main).arg(file), 600), "check the replay file"))
 }
 
-/// Where a replay file's inputs start: after the 13-byte header, the `int` seed and the inputs'
-/// `u32` length. Each frame's `Inputs` is then 4 bools: player 1's up and down, then player 2's.
-const INPUTS_AT: usize = 13 + 4 + 4;
+/// Where a replay file's inputs start: after the 13-byte header, the start `Game` (40 bytes) and
+/// the inputs' `u32` length. Each frame is then two 12-byte `Input`s, player 1's then player 2's,
+/// each its `int` buttons (bit 0 up, bit 1 down) and two `float` axes.
+const INPUTS_AT: usize = 13 + 40 + 4;
 
 #[test]
 fn writes_and_checks_its_replay_file() {
@@ -208,13 +229,13 @@ fn writes_and_checks_its_replay_file() {
     assert!(out.lines().any(|l| l == format!("wrote pong.replay ({frames} frames)")), "no line saying the replay was written in:
 {out}");
 
-    // The header, the seed, each confirmed frame's inputs and a checksum every 60 frames.
+    // The header, the start state, each confirmed frame's inputs and a checksum every 60 frames.
     let file = dir.join("pong.replay");
     let bytes = fs::read(&file).unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
     let f = frames as usize;
     assert_eq!(&bytes[..4], b"KESB", "pong.replay doesn't start with to_bytes's header");
-    assert_eq!(u32::from_le_bytes(bytes[17..21].try_into().unwrap()) as usize, f, "the inputs' length");
-    assert_eq!(bytes.len(), INPUTS_AT + 4 * f + 4 + 8 * (f / 60), "pong.replay's size for {f} frames");
+    assert_eq!(u32::from_le_bytes(bytes[53..57].try_into().unwrap()) as usize, 2 * f, "the inputs' length");
+    assert_eq!(bytes.len(), INPUTS_AT + 24 * f + 4 + 8 * (f / 60), "pong.replay's size for {f} frames");
 
     // Given the file, Pong checks it and plays nothing (a played run would print more lines).
     assert_eq!(check_file(&main, &file), format!("replay matches ({frames} frames)
@@ -226,13 +247,14 @@ fn an_injected_desync_shows_in_the_file_check() {
     // `DESYNC_AT` nudges peer 2's game, but the file holds peer 1's confirmed inputs and the
     // checksums of the states they give, which the nudge never reaches: a `DESYNC_AT` build
     // checks a clean run's file as matching. So the desync is injected into the file itself:
-    // player 1's `up` in frame 300 is flipped, which moves the paddle from frame 301 on.
+    // player 1's up button (bit 0 of its buttons) in frame 300 is flipped, which moves the paddle
+    // from frame 301 on.
     let dir = scratch("file_desync");
     let main = copy_demo(&dir);
     run(&main, 600);
     let mut bytes = fs::read(dir.join("pong.replay")).unwrap();
-    let at = INPUTS_AT + 4 * 300;
-    assert!(bytes[at] <= 1, "byte {at} should be a bool, player 1's up in frame 300");
+    let at = INPUTS_AT + 24 * 300;
+    assert!(bytes[at] <= 3, "byte {at} should be the low byte of player 1's buttons in frame 300");
     bytes[at] ^= 1;
     let file = dir.join("changed.replay");
     fs::write(&file, &bytes).unwrap();

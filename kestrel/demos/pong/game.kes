@@ -1,13 +1,15 @@
 // The game itself: a ball, two paddles and the score, and the step that moves them one frame.
 //
 // `step` is the whole simulation, like a Godot `_physics_process` that reads nothing but its
-// arguments: the same `Game` and the same `Inputs` always give the same next `Game`, bit for bit,
-// on every machine and in every build. That is what lets two peers run the game apart and agree,
+// arguments: the same `Game` and the same two `Input`s always give the same next `Game`, bit for
+// bit, on every machine and in every build. `Game` implements the `rollback` library's `Rollback`
+// interface with it, so a `Session[Game]` can run, snapshot and roll back the game. That is what lets two peers run the game apart and agree,
 // and lets a peer go back to an old snapshot and run the frames again (a rollback).
 // `@prove(deterministic)` makes the compiler check it: no clock, no keyboard, no shared random
 // numbers. Every random number comes from the `Rng` that lives in the game state, so it is
 // copied with each snapshot.
 use { Rng from random }
+use { Input, Rollback from rollback }
 
 // The field, in pixels: origin top-left, y down.
 pub let WIDTH = 800.0
@@ -33,21 +35,19 @@ let MAX_SPEED = 900.0
 let SERVE_ANGLE = 0.6
 let BOUNCE_ANGLE = 0.9
 
-// A player's input for one frame: which of up and down are held (W and S for a person).
+// The buttons of a player's `Input`: up and down (W and S for a person).
+pub let UP = 1
+pub let DOWN = 2
+
+// Which of up and down a player holds in one frame.
 pub struct Pad {
     up: bool
     down: bool
 }
 
-// Both players' inputs for one frame.
-pub struct Inputs {
-    p1: Pad
-    p2: Pad
-}
-
 // Everything the game keeps. Numbers, vectors and an `Rng` only, so a snapshot is a plain copy
 // that never allocates.
-pub struct Game {
+pub struct Game: Rollback {
     ball: vec2
     vel: vec2
     // The middle of each paddle, along y.
@@ -56,16 +56,51 @@ pub struct Game {
     score1: int
     score2: int
     rng: Rng
+
+    // One frame of the game, given player 1's input and player 2's. A bounce mirrors the ball's
+    // position instead of snapping it to the paddle or the wall, so the ball loses no distance and
+    // a small difference stays a difference.
+    @prove(deterministic, no_alloc)
+    pure step(var self, one: Input, two: Input) {
+        self.pad1 = move_pad(self.pad1, held(one))
+        self.pad2 = move_pad(self.pad2, held(two))
+        self.ball += self.vel * DT
+
+        // The top and bottom walls.
+        if self.ball.y < BALL_R {
+            self.ball.y = 2 * BALL_R - self.ball.y
+            self.vel.y = abs(self.vel.y)
+        } else if self.ball.y > HEIGHT - BALL_R {
+            self.ball.y = 2 * (HEIGHT - BALL_R) - self.ball.y
+            self.vel.y = -abs(self.vel.y)
+        }
+
+        // The paddles. The left paddle's face is where the ball's edge touches it.
+        let left = PAD_X + PAD_W / 2 + BALL_R
+        let right = WIDTH - left
+        if hits(self.ball, self.vel, self.pad1, left, -1) {
+            self.ball.x = 2 * left - self.ball.x
+            self.vel = bounce(self.ball, self.vel, self.pad1, 1)
+        } else if hits(self.ball, self.vel, self.pad2, right, 1) {
+            self.ball.x = 2 * right - self.ball.x
+            self.vel = bounce(self.ball, self.vel, self.pad2, -1)
+        }
+
+        // A ball out on one side is a point for the other player, and is served to the side that
+        // lost it.
+        if self.ball.x < -BALL_R {
+            self.score2 += 1
+            serve(var self, -1)
+        } else if self.ball.x > WIDTH + BALL_R {
+            self.score1 += 1
+            serve(var self, 1)
+        }
+    }
 }
 
-// No key held.
-pub pure still() -> Pad {
-    Pad(up: false, down: false)
-}
-
-// True when two inputs are the same.
-pub pure same(a: Pad, b: Pad) -> bool {
-    a.up == b.up and a.down == b.down
+// Which of up and down an input holds.
+pure held(i: Input) -> Pad {
+    Pad(up: (i.buttons & UP) != 0, down: (i.buttons & DOWN) != 0)
 }
 
 // A new game: paddles in the middle and the ball served toward player 2.
@@ -112,51 +147,12 @@ pure hits(ball: vec2, vel: vec2, pad: float, face: float, dir: int) -> bool {
     toward and reached and abs(ball.y - pad) < PAD_H / 2 + BALL_R
 }
 
-// One frame of the game. A bounce mirrors the ball's position instead of snapping it to the
-// paddle or the wall, so the ball loses no distance and a small difference stays a difference.
-@prove(deterministic, no_alloc)
-pub pure step(var g: Game, i: Inputs) {
-    g.pad1 = move_pad(g.pad1, i.p1)
-    g.pad2 = move_pad(g.pad2, i.p2)
-    g.ball += g.vel * DT
-
-    // The top and bottom walls.
-    if g.ball.y < BALL_R {
-        g.ball.y = 2 * BALL_R - g.ball.y
-        g.vel.y = abs(g.vel.y)
-    } else if g.ball.y > HEIGHT - BALL_R {
-        g.ball.y = 2 * (HEIGHT - BALL_R) - g.ball.y
-        g.vel.y = -abs(g.vel.y)
-    }
-
-    // The paddles. The left paddle's face is where the ball's edge touches it.
-    let left = PAD_X + PAD_W / 2 + BALL_R
-    let right = WIDTH - left
-    if hits(g.ball, g.vel, g.pad1, left, -1) {
-        g.ball.x = 2 * left - g.ball.x
-        g.vel = bounce(g.ball, g.vel, g.pad1, 1)
-    } else if hits(g.ball, g.vel, g.pad2, right, 1) {
-        g.ball.x = 2 * right - g.ball.x
-        g.vel = bounce(g.ball, g.vel, g.pad2, -1)
-    }
-
-    // A ball out on one side is a point for the other player, and is served to the side that
-    // lost it.
-    if g.ball.x < -BALL_R {
-        g.score2 += 1
-        serve(var g, -1)
-    } else if g.ball.x > WIDTH + BALL_R {
-        g.score1 += 1
-        serve(var g, 1)
-    }
-}
-
 // A computer player for `side` (1 left, 2 right). It reads only the `Game` it is given (its own
 // peer's), so it is part of the scripted run. It follows the ball once the ball comes toward it
 // and is within 40% of the field of it, aiming near its paddle's edge so its returns go off at a
 // steep angle, and goes back to the middle otherwise. A long rally makes the ball faster than a
 // paddle can follow, so a bot misses about every 10 seconds.
-pub pure bot(g: Game, side: int) -> Pad {
+pub pure bot(g: Game, side: int) -> Input {
     let y = if side == 1 { g.pad1 } else { g.pad2 }
     let coming = if side == 1 { g.vel.x < 0 and g.ball.x < WIDTH * 0.4 } else { g.vel.x > 0 and g.ball.x > WIDTH * 0.6 }
     var target = HEIGHT / 2
@@ -165,5 +161,11 @@ pub pure bot(g: Game, side: int) -> Pad {
         target = g.ball.y + aim
     }
     let gap = target - y
-    Pad(up: gap < -6, down: gap > 6)
+    if gap < -6 {
+        Input(buttons: UP)
+    } else if gap > 6 {
+        Input(buttons: DOWN)
+    } else {
+        Input()
+    }
 }

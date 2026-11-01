@@ -8,8 +8,12 @@
 //
 // Controls: W and S move player 1 (the left paddle); with neither held, a bot plays it. Player 2
 // is always a bot. Tab shows the other peer's view (peer 2's, which sees your moves 100 ms
-// late). R checks the in-memory replay: the confirmed inputs, run again from the seed, must give
+// late). R checks the in-memory replay: the confirmed inputs, run again from the start, must give
 // the same checksums.
+//
+// Two files: this one, the program (the two peers, the network between them, the window and the
+// replay file), and `game.kes`, the game itself. The netcode is the built-in `rollback` module:
+// each peer is a `Session[Game]`, the network a `FakeNet`, and the replay a `Replay[Game]`.
 //
 // At the end of a run the replay is saved to `pong.replay` next to the program. Given a file, as
 // in the second command (a relative path is next to the program too), Pong plays nothing: it
@@ -39,12 +43,27 @@ use file
 use args
 use { Color from draw }
 use { Key from input }
-use { Pad, WIDTH, HEIGHT, DT, PAD_X, PAD_W, PAD_H, BALL_R, bot from game }
-use { Net, new_net from net }
-use { Peer, new_peer from peer }
-use { Replay, new_replay from replay }
+use rollback
+use { Input, Session, FakeNet, Replay, new_session, new_fake_net, new_replay, check_replay from rollback }
+use { Game, new_game, WIDTH, HEIGHT, DT, PAD_X, PAD_W, PAD_H, BALL_R, UP, DOWN, bot from game }
 
 let SEED = 7
+
+// The simulated network: each packet takes 6 frames (100 ms) plus up to 2 frames of jitter to
+// arrive, so packets can overtake each other, and 5% of them are lost. Its own seed decides both,
+// so a run is the same every time.
+let NET_SEED = 20261027
+let LATENCY = 6
+let JITTER = 2
+let LOSS = 0.05
+
+// A frame at which peer 2 nudges its confirmed state, to show the checksums catch a desync.
+// -1 is never.
+let DESYNC_AT = -1
+
+// Whether the run keeps a replay of peer 1's confirmed frames. It grows by 24 bytes a frame; a
+// test turns it off to see that everything else stays the same size.
+let RECORD = true
 
 // A test sets this to print a line each frame: `trace tick <T> score <A> <B>`.
 let TRACE = false
@@ -66,43 +85,75 @@ let GOOD = Color(0.45, 0.9, 0.5)
 let BAD = Color(1, 0.4, 0.35)
 
 // One network frame at frame `s.tick`: packets arrive, each peer rolls back if a guess was
-// wrong, runs the present frame with its player's input, looks at newly confirmed frames and
-// sends a packet. Player 1 is `keys` when `use_keys`, else the bot. Gives the first frame whose
-// checksums differ, or -1.
-net_frame(var s: PongState, use_keys: bool, keys: Pad) -> int {
+// wrong, runs the present frame with its player's input, takes the checksums of newly confirmed
+// frames and compares them, and sends a packet. Player 1 is `keys` when `use_keys`, else the bot.
+// Gives the first frame whose checksums differ, or -1.
+net_frame(var s: PongState, use_keys: bool, keys: Input) -> int {
     // The arriving packets are a new list each frame; the arena frees it.
     arena {
         for pk in s.net.deliver(s.tick) {
             if pk.sender == 1 {
-                s.p2.receive(pk)
+                s.p2.remote(pk)
             } else {
-                s.p1.receive(pk)
+                s.p1.remote(pk)
             }
         }
     }
-    s.p1.rollback()
-    s.p2.rollback()
+    s.p1.catch_up()
+    s.p2.catch_up()
 
-    // Each bot reads its own peer's present state.
-    let pad1 = if use_keys { keys } else { bot(s.p1.game, 1) }
-    s.p1.advance(pad1)
-    s.p2.advance(bot(s.p2.game, 2))
-    s.p1.confirm()
-    s.p2.confirm()
-
-    // The replay takes peer 1's newly confirmed frames.
-    while s.replay.inputs.len < s.p1.confirmed() {
-        let f = s.replay.inputs.len
-        s.replay.record(s.p1.inputs_at(f), s.p1.state_at(f + 1))
+    // Each bot reads its own peer's present state, corrected by the rollback above.
+    s.p1.local(if use_keys { keys } else { bot(s.p1.game, 1) })
+    advance_peer(var s.p1)
+    s.p2.local(bot(s.p2.game, 2))
+    advance_peer(var s.p2)
+    if DESYNC_AT >= 0 and not s.nudged and s.p2.checked >= DESYNC_AT {
+        nudge(var s.p2)
+        s.nudged = true
     }
 
-    s.net.send(s.tick, 1, s.p1.now - 1, s.p1.local, s.p1.sum_frame, s.p1.sum)
-    s.net.send(s.tick, 2, s.p2.now - 1, s.p2.local, s.p2.sum_frame, s.p2.sum)
-    max(s.p1.compare(), s.p2.compare())
+    // The replay takes peer 1's newly confirmed frames.
+    if RECORD {
+        s.p1.record(var s.replay)
+    }
+
+    // Each packet's inputs are made in this arena; `send` copies them into the network's slots.
+    arena {
+        s.net.send(s.tick, s.p1.outgoing())
+        s.net.send(s.tick, s.p2.outgoing())
+    }
+    max(s.p1.desync_at, s.p2.desync_at)
+}
+
+// One peer's frame. The library can't promise `no_alloc` for every game (a state holding a list
+// allocates when it is copied into the snapshot ring), so Pong proves it for its own `Game`.
+@prove(deterministic, no_alloc)
+pure advance_peer(var p: Session[Game]) {
+    p.advance()
+}
+
+// Nudges peer 2's state at DESYNC_AT once that frame is confirmed and its checksum taken: in the
+// snapshot, running the frames since again from it, so no rollback can undo it and the next
+// checksum shows it. It is done after `advance` has confirmed a batch of frames rather than as
+// DESYNC_AT itself is confirmed, which is the same: one `advance` confirms at most MAX_AHEAD
+// frames plus the jitter, never the 30 that would reach the next checksum frame first.
+pure nudge(var p: Session[Game]) {
+    if DESYNC_AT == p.now {
+        p.game.ball.x += 0.001
+    } else {
+        p.ring[DESYNC_AT % rollback.RING].ball.x += 0.001
+        p.run_again(DESYNC_AT)
+    }
+}
+
+// The checksum of a peer's newest confirmed state, summed where it is.
+confirmed_sum(p: Session[Game]) -> i64 {
+    let c = p.confirmed()
+    if c == p.now { checksum(p.game) } else { checksum(p.ring[c % rollback.RING]) }
 }
 
 // Draws peer `shown`'s view of the game and the status lines.
-draw_view(p: Peer, shown: int, rollbacks: int, lost: int, check: int, check_frames: int, check_shown: bool) {
+draw_view(p: Session[Game], shown: int, rollbacks: int, lost: int, check: int, check_frames: int, check_shown: bool) {
     let g = p.game
     draw.clear(BACKGROUND)
     for k from 0 to 25 {
@@ -137,36 +188,38 @@ print_check(bad: int, frames: int) {
 
 // Saves the replay to REPLAY_FILE. Its bytes are made in an arena of their own, freed once
 // written.
-save_replay(replay: Replay) {
+save_replay(replay: Replay[Game]) {
     arena {
         if file.write(REPLAY_FILE, to_bytes(replay)) {
-            print("wrote {REPLAY_FILE} ({replay.inputs.len} frames)")
+            print("wrote {REPLAY_FILE} ({replay.frames()} frames)")
         } else {
             print(file.error())
         }
     }
 }
 
-// Reads the replay saved at `path`, runs it again from its seed and prints the check's result.
+// Reads the replay saved at `path`, runs it again from its start and prints the check's result.
 check_file(path: string) {
     let bytes = file.read(path) else {
         print(file.error())
         return
     }
-    let replay = from_bytes[Replay](bytes) else {
+    let replay = from_bytes[Replay[Game]](bytes) else {
         print("{path} is not a Pong replay; pass a file that a run of Pong wrote, like {REPLAY_FILE}")
         return
     }
-    print_check(replay.check(), replay.inputs.len)
+    print_check(check_replay(replay), replay.frames())
 }
 
 // The game between two frames. `kestrel run` keeps it across an edit of the program (a hot
 // reload) when this struct stays the same.
 pub struct PongState {
-    p1: Peer
-    p2: Peer
-    net: Net
-    replay: Replay
+    p1: Session[Game]
+    p2: Session[Game]
+    net: FakeNet
+    replay: Replay[Game]
+    // DESYNC_AT's nudge has been made.
+    nudged: bool
     // Network frames run so far, the time not yet run, and the first frame whose checksums
     // differ (-1 none).
     tick: int
@@ -192,8 +245,10 @@ pub setup() -> PongState {
     } else {
         window.open(int(WIDTH), int(HEIGHT), "Kestrel rollback pong")
     }
-    PongState(p1: new_peer(1, SEED), p2: new_peer(2, SEED), net: new_net(), replay: new_replay(SEED), tick: 0, acc: 0.0,
-        differ: -1, shown: 1, check: -1, check_frames: 0, check_at: -SHOW_CHECK, done: checking)
+    let start = new_game(SEED)
+    PongState(p1: new_session(start, me: 1, delay: 0), p2: new_session(start, me: 2, delay: 0),
+        net: new_fake_net(NET_SEED, latency: LATENCY, jitter: JITTER, loss: LOSS), replay: new_replay(start), nudged: false,
+        tick: 0, acc: 0.0, differ: -1, shown: 1, check: -1, check_frames: 0, check_at: -SHOW_CHECK, done: checking)
 }
 
 // One window frame: the input, the fixed steps and the drawing. When the window closes or the
@@ -209,14 +264,21 @@ pub frame(var s: PongState) -> bool {
     }
 
     // Input is read once a window frame, outside the deterministic game.
-    let keys = Pad(up: input.held(Key.W), down: input.held(Key.S))
-    let use_keys = keys.up or keys.down
+    // Up and down are separate bits, so holding both adds both.
+    var keys = Input()
+    if input.held(Key.W) {
+        keys.buttons += UP
+    }
+    if input.held(Key.S) {
+        keys.buttons += DOWN
+    }
+    let use_keys = keys.buttons != 0
     if input.pressed(Key.Tab) {
         s.shown = 3 - s.shown
     }
     if input.pressed(Key.R) {
-        s.check = s.replay.check()
-        s.check_frames = s.replay.inputs.len
+        s.check = check_replay(s.replay)
+        s.check_frames = s.replay.frames()
         s.check_at = window.time()
         print_check(s.check, s.check_frames)
     }
@@ -255,12 +317,11 @@ finish(s: PongState) {
     if s.differ >= 0 {
         print("peers differ at frame {s.differ}")
     } else {
-        let c = s.p1.confirmed()
-        print("frames {s.tick} confirmed {c} checksum {checksum(s.p1.state_at(c))}")
+        print("frames {s.tick} confirmed {s.p1.confirmed()} checksum {confirmed_sum(s.p1)}")
         print("rollbacks {s.p1.rollbacks + s.p2.rollbacks} deepest {max(s.p1.deepest, s.p2.deepest)} lost {s.net.lost}")
         // Both peers have compared every checksum up to this frame and found them equal.
         print("checksums compared up to frame {min(s.p1.compared, s.p2.compared)}")
-        print_check(s.replay.check(), s.replay.inputs.len)
+        print_check(check_replay(s.replay), s.replay.frames())
     }
     save_replay(s.replay)
 }

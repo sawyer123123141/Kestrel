@@ -322,7 +322,7 @@ Any window program can be recorded and replayed with no code: `kestrel run game.
   - `editors/vscode`: the VS Code extension (highlighting, and the client that starts `kestrel-lsp`).
   - `godot`: the Godot add-on and its demo project (built separately).
 - `kestrel/demos/particles/`: the particles demo and its measured times.
-- `kestrel/demos/pong/`: the rollback Pong demo (`pong.kes`, `game.kes`, `net.kes`, `peer.kes`, `replay.kes`).
+- `kestrel/demos/pong/`: the rollback Pong demo (`pong.kes` and `game.kes`, on the built-in `rollback` module).
 - `kestrel/demos/voxels/`: the voxel viewer (`voxels.kes`, `world.kes`, `fly.kes`) and its measured times.
 - `kestrel/voxel/`: the voxel engine (libraries, engine, `main.kes`, its tests and benchmark); its measured times are in `kestrel/bench/engine/results.md`.
 - `kestrel/tests/programs/` and `kestrel/tests/errors/`: example programs with their expected output, and expected errors.
