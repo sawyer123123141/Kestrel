@@ -34,6 +34,7 @@ mod placeholders;
 mod prove;
 mod reload;
 mod reload_hash;
+mod reload_hash_stmt;
 mod remove;
 mod scopes;
 mod scratch;
