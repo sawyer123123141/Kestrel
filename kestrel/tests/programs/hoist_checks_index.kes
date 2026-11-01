@@ -1,0 +1,15 @@
+// expect-exit: 101
+// expect-stderr: index 5 out of bounds for length 3 on line 7
+// An index check that fails comes before an invariant overflow after it.
+pure f(xs: [int], c: int) -> int {
+    var acc = 0
+    for x from 5 to 8 {
+        acc = acc ^ xs[x]
+        acc = acc ^ (c * 2)
+    }
+    acc
+}
+
+main() {
+    print(f([1, 2, 3], 2147483647))
+}

@@ -1,0 +1,15 @@
+// expect: 0
+// expect-exit: 101
+// expect-stderr: integer overflow on line 9
+// A check after a print stays after it: the print comes first.
+run(c: int) {
+    var y = 0
+    for x from 0 to 3 {
+        print(x + y)
+        y = c * 2
+    }
+}
+
+main() {
+    run(2147483647)
+}

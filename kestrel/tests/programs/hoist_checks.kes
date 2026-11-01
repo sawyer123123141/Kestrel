@@ -1,0 +1,66 @@
+// expect: 72
+// expect: 72
+// expect: 0
+// expect: 7010
+// expect: 138
+// expect: 0
+// expect: 0
+// A check a loop never changes runs once, before the loop (performance round, decision 7), and
+// every result is the one the loop gave when it ran on each pass.
+pure solids(cx: int, seed: int) -> int {
+    var out = array[u8](6 * 6 * 6)
+    var i = 0
+    for y from 0 to 6 {
+        for z from 0 to 6 {
+            for x from 0 to 6 {
+                if (cx * 32 + x - 1 + (y * 7 + z * 3) + (seed + 1)) % 3 == 0 {
+                    out[i] = 1
+                }
+                i += 1
+            }
+        }
+    }
+    var n = 0
+    for k from 0 to out.len {
+        n += int(out[k])
+    }
+    n
+}
+
+// Runs no pass when `n` is 0: `c * 1000` would overflow, but nothing fails.
+pure guarded(c: int, n: int) -> int {
+    var acc = 0
+    for x from 0 to n {
+        acc = (acc ^ (c * 1000)) + x
+    }
+    acc
+}
+
+pure looping(c: int, n: int) -> int {
+    var acc = 0
+    var i = 0
+    while i < n {
+        acc += c * 3 + i
+        i += 1
+    }
+    acc
+}
+
+// `d + x` can fail on the first pass, before `c * 7`: both stay in order.
+pure peeled(c: int, d: int) -> int {
+    var acc = 0
+    for x from 0 to 4 {
+        acc = (acc ^ (d + x)) + c * 7
+    }
+    acc
+}
+
+main() {
+    print(solids(2, 1337))
+    print(solids(-5, 7))
+    print(guarded(2147483647, 0))
+    print(guarded(7, 5))
+    print(looping(11, 4))
+    print(looping(2147483647, 0))
+    print(peeled(3, -20))
+}

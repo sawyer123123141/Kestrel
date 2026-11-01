@@ -4,12 +4,16 @@
 //! of every loop around it, so an inner loop skips its deciding pass unless every loop around it
 //! is deciding. Also the `Prove` block an annotated loop is lowered into (`region`).
 
+use std::collections::HashMap;
+
 use super::interval::Interval;
 use super::state::State;
 use super::tracked::Tracked;
 use super::{writes, Cx};
 use crate::contract::prove_copies;
+use crate::hoist_checks::const_int;
 use crate::ir::*;
+use crate::visit::{walk, Node};
 
 /// After this many rounds, a loop's top keeps only each term's bounds, so its repeats end.
 const SETTLE_ROUNDS: u32 = 8;
@@ -38,6 +42,8 @@ impl Cx<'_> {
     /// end { body; var = var + 1 }`, where the step wraps (as codegen emits it) and a `continue`
     /// goes through it. The end is a hidden term, fresh each time the loop is entered.
     pub(super) fn for_range(&mut self, entry: State, s: &Stmt, var: LocalIdx, (start, end): (&Expr, &Expr), body: &[Stmt]) -> State {
+        let claims = self.counters.active.len();
+        self.claim_counters(&entry, s);
         // The start and the end, once, as a simple statement that assigns `var`.
         let mut st = entry;
         let mut w = writes::of_expr(start);
@@ -61,10 +67,16 @@ impl Cx<'_> {
         self.assign(&mut st, var, Some(first), &w);
         let last = last.r;
         let var_node = self.t.node(var);
-        self.repeat(st, start.line, |cx, top| {
+        let at = s as *const Stmt as usize;
+        let exit = self.repeat(st, start.line, |cx, top| {
             // `var < end` decides each round; the end was worked out once, so its range holds.
             let (mut t, mut f) = (top.clone(), top.clone());
             t.narrow(&cx.t, var, Interval::new(i128::MIN / 2, last.hi - 1));
+            for &(inner, c, r) in &cx.counters.active {
+                if inner == at {
+                    t.narrow(&cx.t, c, r);
+                }
+            }
             f.narrow(&cx.t, var, Interval::new(last.lo, i128::MAX / 2));
             if let (Some(v), Some(h)) = (var_node, hidden) {
                 t.fact(&cx.t, v, h, -1);
@@ -73,7 +85,25 @@ impl Cx<'_> {
             let (end, frame) = cx.body(t, body);
             let back = cx.step(joined(&cx.t, end, frame.continues), var);
             (back, joined(&cx.t, f, frame.breaks))
-        })
+        });
+        self.counters.active.truncate(claims);
+        exit
+    }
+
+    /// The nest counter rule: for each counter `s` heads a nest of (see `nests`), adds what the
+    /// counter is at the start of each pass of the loop that bumps it, from its range at the
+    /// nest's entry: at most `hi + n - 1` after `n` bumps at most, when `hi + n` fits its type (so
+    /// no bump wraps). The claims last while `s` is being analysed.
+    fn claim_counters(&mut self, entry: &State, s: &Stmt) {
+        let f = self.f;
+        let nests = self.counters.nests.get_or_insert_with(|| nests(f));
+        let Some(found) = nests.get(&(s as *const Stmt as usize)) else { return };
+        for &(c, n, inner) in found {
+            let ty = f.locals[c.0 as usize].ty;
+            if let Some(r) = entry.get(&self.t, c).filter(|r| Interval::new(r.lo, r.hi + n).fits(ty)) {
+                self.counters.active.push((inner, c, Interval::new(r.lo, r.hi + n - 1)));
+            }
+        }
     }
 
     /// `var = var + 1`, wrapping: a `for` range's step. Its facts move with it while it can't
@@ -139,4 +169,94 @@ fn joined(t: &Tracked, st: State, other: Option<State>) -> State {
         Some(o) => st.join(t, &o),
         None => st,
     }
+}
+
+/// The nest counters of a function (found once, at its first `for` range) and the claims of the
+/// nests being analysed: the loop whose passes a claim is about (by address), the counter and the
+/// range it is in at the start of each pass.
+#[derive(Default)]
+pub(super) struct Counters {
+    nests: Option<HashMap<usize, Vec<Nest>>>,
+    pub(super) active: Vec<(usize, LocalIdx, Interval)>,
+}
+
+/// A nest counter: the counter, the most times it is bumped, and the address of the loop whose
+/// body bumps it.
+type Nest = (LocalIdx, i128, usize);
+
+/// Every nest counter of `f`, by the address of the `for` range that heads its nest: the counter,
+/// the most times it is bumped, and the loop whose body bumps it. A nest is a `for` range with
+/// constant bounds whose body holds, at its top level, more such ranges, down to one whose body
+/// holds `c = c + 1` at its top level; the bump runs once per pass of that body, at most the
+/// product of the trip counts on the way down. The counter must be an integer `Value` local that
+/// nothing else in the nest writes, and the nest holds no `break`, `continue` or `return`.
+fn nests(f: &Func) -> HashMap<usize, Vec<Nest>> {
+    let mut out = HashMap::new();
+    walk(&f.body, &mut |n| {
+        if let Node::Stmt(s) = n {
+            if let Some(trips) = trips(s) {
+                let mut found = Vec::new();
+                bumps(s, trips, &mut found);
+                found.retain(|&(c, _, _)| {
+                    let l = &f.locals[c.0 as usize];
+                    l.kind == LocalKind::Value && l.ty.is_int() && writes_in(s, c) == 1
+                });
+                if !found.is_empty() && !leaves(s) {
+                    out.insert(s as *const Stmt as usize, found);
+                }
+            }
+        }
+    });
+    out
+}
+
+/// The trip count of a `for` range with constant bounds that runs at least once.
+fn trips(s: &Stmt) -> Option<i128> {
+    let Stmt::ForRange { start, end, .. } = s else { return None };
+    let n = const_int(end)? - const_int(start)?;
+    (n > 0).then_some(n)
+}
+
+/// The bumps at the top level of loop `s`'s body (passes: `n`), and of each constant range at its
+/// top level, recursively.
+fn bumps(s: &Stmt, n: i128, out: &mut Vec<Nest>) {
+    let Stmt::ForRange { body, .. } = s else { return };
+    for st in body {
+        if let Some(c) = bump(st) {
+            out.push((c, n, s as *const Stmt as usize));
+        } else if let Some(k) = trips(st) {
+            bumps(st, n.saturating_mul(k), out);
+        }
+    }
+}
+
+/// The local `s` adds 1 to (`c = c + 1`), if that is what it does.
+fn bump(s: &Stmt) -> Option<LocalIdx> {
+    let Stmt::Assign(p, e) = s else { return None };
+    let e = match &e.kind {
+        ExprKind::Proven(x) => x,
+        _ => e,
+    };
+    let ExprKind::Binary(BinOp::Add | BinOp::AddWrap, a, b) = &e.kind else { return None };
+    let one = |x: &Expr| matches!(x.kind, ExprKind::Int(1));
+    let reads = |x: &Expr| matches!(&x.kind, ExprKind::Load(q) if q.path.is_empty() && q.root == p.root);
+    (p.path.is_empty() && ((reads(a) && one(b)) || (one(a) && reads(b)))).then_some(p.root)
+}
+
+/// How many statements and places in `s` write local `c`.
+fn writes_in(s: &Stmt, c: LocalIdx) -> usize {
+    let mut n = 0;
+    walk(std::slice::from_ref(s), &mut |node| match node {
+        Node::Stmt(Stmt::Let(l, _) | Stmt::Bind(l, _) | Stmt::BindGlobal(l, _) | Stmt::BindEnv { local: l, .. } | Stmt::ForRange { var: l, .. }) if *l == c => n += 1,
+        Node::Place(p, true) if p.root == c => n += 1,
+        _ => {}
+    });
+    n
+}
+
+/// Whether `s` holds a `break`, `continue` or `return`.
+fn leaves(s: &Stmt) -> bool {
+    let mut found = false;
+    walk(std::slice::from_ref(s), &mut |n| found |= matches!(n, Node::Stmt(Stmt::Break | Stmt::Continue | Stmt::Return(_))));
+    found
 }

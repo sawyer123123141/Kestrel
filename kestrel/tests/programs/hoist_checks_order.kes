@@ -1,0 +1,16 @@
+// expect-exit: 101
+// expect-stderr: integer overflow on line 8
+// Checks keep their order: `d + x + 1` fails on the first pass, before `c * 2` would, so its line
+// is the one named even though `c * 2` runs before the loop.
+pure f(c: int, d: int) -> int {
+    var acc = 0
+    for x from 0 to 3 {
+        acc = acc ^ (d + x + 1)
+        acc = acc ^ (c * 2)
+    }
+    acc
+}
+
+main() {
+    print(f(2147483647, 2147483647))
+}

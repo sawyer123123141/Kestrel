@@ -279,6 +279,9 @@ struct Cx<'a> {
     top: State,
     /// Each `ForRange`'s number, by address: its hidden end is `Term::Hidden` of it.
     hidden: HashMap<usize, u32>,
+    /// The nest counters of the function and the claims of the nests being analysed (see
+    /// `loops::Counters`).
+    counters: loops::Counters,
     /// The nodes the expression being evaluated may write (see `within`), by node: a read of one
     /// may come before or after the write, so two reads of it aren't one value.
     volatile: Vec<bool>,
@@ -311,6 +314,7 @@ impl<'a> Cx<'a> {
             homes,
             top,
             hidden,
+            counters: loops::Counters::default(),
             volatile: Vec::new(),
             arith,
             deciding: true,
