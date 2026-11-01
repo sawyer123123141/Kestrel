@@ -41,12 +41,13 @@ pub(crate) fn run(m: &mut Module, arith: Arith) {
     }
 }
 
-/// The value of a constant integer expression: literals and `+ - * /` of them (`Proven` or not),
+/// The value of a constant integer expression: literals, `-x` and `+ - * /` of them (`Proven` or not),
 /// when every step fits its type.
 pub(crate) fn const_int(e: &Expr) -> Option<i128> {
     let v = match &e.kind {
         ExprKind::Int(c) => i128::from(*c),
         ExprKind::Proven(x) => return const_int(x),
+        ExprKind::Unary(UnOp::Neg, x) => -const_int(x)?,
         ExprKind::Binary(op, a, b) => {
             let (a, b) = (const_int(a)?, const_int(b)?);
             match op {

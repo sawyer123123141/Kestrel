@@ -100,8 +100,10 @@ impl Cx<'_> {
         let Some(found) = nests.get(&(s as *const Stmt as usize)) else { return };
         for &(c, n, inner) in found {
             let ty = f.locals[c.0 as usize].ty;
-            if let Some(r) = entry.get(&self.t, c).filter(|r| Interval::new(r.lo, r.hi + n).fits(ty)) {
-                self.counters.active.push((inner, c, Interval::new(r.lo, r.hi + n - 1)));
+            // A product of trip counts near `i128::MAX` (they saturate) can't be added to: no claim.
+            let Some((r, end)) = entry.get(&self.t, c).and_then(|r| Some((r, r.hi.checked_add(n)?))) else { continue };
+            if Interval::new(r.lo, end).fits(ty) {
+                self.counters.active.push((inner, c, Interval::new(r.lo, end - 1)));
             }
         }
     }

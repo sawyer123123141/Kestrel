@@ -96,3 +96,22 @@ fn a_counter_starting_anywhere_known_is_bounded_from_there() {
     let (m, a) = analysed(&src.replace("array[int](40)", "array[int](39)"), Checked);
     assert_eq!(left_of(&m, &a, "fill", Bounds).len(), 1, "{:#?}", checks(&m, &a, "fill").left);
 }
+
+#[test]
+fn a_nest_too_long_to_count_claims_nothing() {
+    // Two loops of about 2^64 passes each: the product of their trip counts can't be added to the
+    // counter's bound (1), so the rule says nothing (and the compiler doesn't overflow working it out).
+    let src = "let LO: i64 = -9223372036854775807 - 1
+let HI: i64 = 9223372036854775807
+pure count(k: i64) -> i64 {
+    var i: i64 = 1
+    for a from LO to HI {
+        for b from LO to HI {
+            i += 1
+        }
+    }
+    i + k
+}";
+    let (m, a) = analysed(src, Checked);
+    assert_eq!(left_of(&m, &a, "count", Overflow).len(), 2, "{:#?}", checks(&m, &a, "count").left);
+}

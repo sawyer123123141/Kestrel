@@ -1,0 +1,35 @@
+// expect: 1
+// env: KESTREL_POISON=1
+// A loop element whose owner a call replaces, freeing the arena the element lives in: the call
+// names the owner, so `promote` keeps `row[i]` in memory (its `exclusive` rule) and nothing is
+// written back into the freed memory after the call.
+struct P {
+    x: int
+    y: int
+}
+
+struct Holder {
+    mem: Arena = Arena()
+    rows: list[[P]] = []
+    n: int = 0
+}
+
+reset(var h: Holder) {
+    let n = h.n + 1
+    h = Holder()
+    h.n = n
+}
+
+main() {
+    var h = Holder()
+    in h.mem {
+        h.rows.add(array[P](4))
+    }
+    let i = 2
+    for row in h.rows {
+        row[i].x = 5
+        row[i].y = row[i].x + 1
+        reset(var h)
+    }
+    print(h.n)
+}
