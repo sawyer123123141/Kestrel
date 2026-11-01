@@ -140,6 +140,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
     }
 
     fn while_loop(&mut self, cond: &kir::Expr, body: &[kir::Stmt]) -> Result<(), String> {
+        let cached = self.cache_headers(Some(cond), body);
         let (header, body_b, exit) = (self.b.create_block(), self.b.create_block(), self.b.create_block());
         self.b.ins().jump(header, &[]);
         self.b.switch_to_block(header);
@@ -153,6 +154,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             self.b.ins().jump(header, &[]);
         }
         self.b.switch_to_block(exit);
+        self.uncache(cached);
         Ok(())
     }
 
@@ -161,6 +163,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         let end_v = self.expr(end)?;
         let place = Place::local(var);
         self.store_place(&place, start_v)?;
+        let cached = self.cache_headers(None, body);
         let ty = self.local_ty(var);
         let (header, body_b, step, exit) =
             (self.b.create_block(), self.b.create_block(), self.b.create_block(), self.b.create_block());
@@ -188,6 +191,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
         self.b.ins().jump(header, &[]);
 
         self.b.switch_to_block(exit);
+        self.uncache(cached);
         Ok(())
     }
 }

@@ -11,6 +11,7 @@ mod divide;
 mod expr;
 mod fnvalue;
 mod globals;
+mod headers;
 mod iface;
 mod lists;
 mod maps;
@@ -134,6 +135,8 @@ pub(crate) struct FuncLowerer<'a, 'b, M: Module> {
     sret: Option<Value>,
     /// (continue target, break target) of each enclosing loop.
     loops: Vec<(Block, Block)>,
+    /// The list headers kept in variables for the loops being lowered (see `headers`).
+    hdr_cache: Vec<headers::Cached>,
 }
 
 pub(crate) fn lower_func<M: Module>(
@@ -177,7 +180,7 @@ pub(crate) fn lower_func<M: Module>(
         }
     }
 
-    let mut fl = FuncLowerer { module, strings, shared, b, f, ptr, slots, sret, loops: Vec::new() };
+    let mut fl = FuncLowerer { module, strings, shared, b, f, ptr, slots, sret, loops: Vec::new(), hdr_cache: Vec::new() };
     if fl.stmts(&f.body)? {
         if f.ret.is_some() {
             // The checker guarantees value-returning bodies don't fall off the end.

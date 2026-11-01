@@ -75,17 +75,26 @@ pub(crate) fn define_module<M: Module>(
     isa::check_simd(module.isa(), m)?;
     // Range analysis runs here, on a copy, with this build's arithmetic: so every way of compiling
     // gets it, and the proofs always assume the mode of the code emitted. A module the driver
-    // analysed already (an annotated program) is compiled as it is, for its own build only.
+    // analysed already (an annotated program) is copied as it is, for its own build only. The
+    // passes that need the marks (`kir::after_marking`) then run on that copy, so the caller's
+    // module, which `kestrel check --report` and contracts read, never sees them.
     let mode = kir::range::Arith::of(opts.checked_arith);
     let analysed;
     let m = match (m.analysed, opts.remove_checks) {
         (Some(_), false) => return Err("the module was analysed, so it can't be compiled with every check kept".to_string()),
         (Some(built), true) if built != mode => return Err("the module was analysed for the other build".to_string()),
-        (Some(_), true) | (None, false) => m,
+        (None, false) => m,
+        (Some(_), true) => {
+            let mut copy = m.clone();
+            kir::after_marking(&mut copy, mode);
+            analysed = copy;
+            &analysed
+        }
         (None, true) => {
             let mut copy = m.clone();
             // What is left isn't needed here: `kestrel check --report` describes it.
             kir::range::mark_proven(&mut copy, mode);
+            kir::after_marking(&mut copy, mode);
             analysed = copy;
             &analysed
         }

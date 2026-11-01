@@ -116,6 +116,27 @@ fn float_order(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or_else(|| a.is_nan().cmp(&b.is_nan()))
 }
 
+/// Sorts the `len` items of `size` bytes at `items` stably, smallest first, by the integer key of
+/// each item, which compiled code has written to `keys` in item order (spec decision 8 of the
+/// performance round builds it; until then it fails).
+///
+/// # Safety
+/// `items` must be valid for reading and writing `len * size` bytes, and `keys` for reading `len`
+/// keys.
+#[no_mangle]
+pub unsafe extern "C" fn kestrel_rt_sort_keyed_int(_items: *mut u8, _len: i64, _size: i64, _keys: *const i64) {
+    crate::panic::fail("the keyed integer sort is not built yet, so this compiler can't sort by it")
+}
+
+/// As `kestrel_rt_sort_keyed_int`, for float keys in `float_order`.
+///
+/// # Safety
+/// As for `kestrel_rt_sort_keyed_int`.
+#[no_mangle]
+pub unsafe extern "C" fn kestrel_rt_sort_keyed_float(_items: *mut u8, _len: i64, _size: i64, _keys: *const f64) {
+    crate::panic::fail("the keyed float sort is not built yet, so this compiler can't sort by it")
+}
+
 /// How the first string stands to the second by code point: 0 for before, 1 for equal, 2 for
 /// after. UTF-8 keeps the order of code points, so this compares bytes.
 ///
