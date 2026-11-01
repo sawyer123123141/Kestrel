@@ -74,12 +74,13 @@ impl Parser {
     }
 
     /// `use m`, `use { a, b from m }`; braces may hold several clauses,
-    /// one per line. A list without `from` names whole modules.
+    /// one per line. A list without `from` names whole modules. A module's name may be names
+    /// joined by dots (`use net.packet`), which name folders.
     fn use_decl(&mut self, start: Span) -> PResult<Item> {
         self.bump();
         let mut clauses = Vec::new();
         if !self.eat(&Tok::LBrace) {
-            let (module, module_span) = self.expect_ident("a module name")?;
+            let (module, module_span) = self.expect_dotted("a module name")?;
             clauses.push(UseClause { module, module_span, names: Vec::new() });
             return Ok(Item::Use(UseDecl { clauses, span: start.to(module_span) }));
         }
@@ -88,12 +89,17 @@ impl Parser {
             if self.at(&Tok::RBrace) {
                 break;
             }
-            let mut names = vec![self.expect_ident("a name or a module")?];
+            let mut names = vec![self.expect_dotted("a name or a module")?];
             while self.eat(&Tok::Comma) {
-                names.push(self.expect_ident("a name or a module")?);
+                names.push(self.expect_dotted("a name or a module")?);
             }
             if self.eat(&Tok::From) {
-                let (module, module_span) = self.expect_ident("a module name")?;
+                if let Some((name, span)) = names.iter().find(|(n, _)| n.contains('.')) {
+                    let msg = format!("`{name}` is a module's name; a name before `from` is one item of the module after it, like `use {{ Packet from net.packet }}`");
+                    self.error(*span, msg);
+                    return Err(());
+                }
+                let (module, module_span) = self.expect_dotted("a module name")?;
                 clauses.push(UseClause { module, module_span, names });
             } else {
                 clauses.extend(names.into_iter().map(|(module, module_span)| UseClause { module, module_span, names: Vec::new() }));
@@ -256,9 +262,16 @@ impl Parser {
             })?;
             TypeExpr { kind: TypeKind::Array(Box::new(inner)), span: start.to(end) }
         } else {
-            let (name, span) = self.expect_ident("a type")?;
-            let mut args = Vec::new();
+            let (mut name, span) = self.expect_ident("a type")?;
             let mut end = span;
+            // A full name, `net.packet.Packet`: the linker finds the module.
+            while self.at(&Tok::Dot) && matches!(self.peek_at(1), Tok::Ident(_)) {
+                self.bump();
+                let (part, part_span) = self.expect_ident("a type")?;
+                name = format!("{name}.{part}");
+                end = part_span;
+            }
+            let mut args = Vec::new();
             if self.at(&Tok::LBracket) {
                 (args, end) = self.nested_type(|p| {
                     p.bump();

@@ -194,6 +194,10 @@ pub struct Module {
     /// (see `pack_line`). Empty when the compiler wasn't given names: runtime errors then give
     /// only the line.
     pub files: Vec<String>,
+    /// The full name of the module each file is (`net.packet` for `net/packet.kes`, `rollback` for
+    /// each part of the built-in `rollback`), by the same index as `files`: the report writes a
+    /// module's function without it. Empty when `files` is.
+    pub module_names: Vec<String>,
     /// The method table of each (concrete type, interface) pair an interface value is made from.
     pub tables: Vec<MethodTable>,
     /// Each call `inline_small` left in place and why: function by function, each in the order

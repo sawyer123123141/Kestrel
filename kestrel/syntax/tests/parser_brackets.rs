@@ -63,7 +63,13 @@ fn module(name: &str, src: &str, after: Option<&Program>, base: u32) -> Module {
         Some(p) => parse_at(src, base, p.expr_count, p.bind_count),
     };
     assert!(d.is_empty(), "unexpected diagnostics in {name}: {:?}", d.iter().map(|d| &d.message).collect::<Vec<_>>());
-    Module { name: name.to_string(), program }
+    // `main` uses `geom`, the second module.
+    let resolved = program.items.iter().filter_map(|i| match i {
+        Item::Use(u) => Some(u.clauses.iter().map(|c| (c.module == "geom").then_some(1))),
+        _ => None,
+    });
+    let resolved = resolved.flatten().collect();
+    Module { name: name.to_string(), file: format!("{name}.kes"), program, resolved }
 }
 
 /// Links `main_src` (the entry file) with `geom_src`.

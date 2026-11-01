@@ -5,18 +5,19 @@
 mod analysis;
 mod builtin;
 pub mod host;
+mod load;
 mod prove;
 pub mod reload;
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use kestrel_syntax::ast::Item;
-use kestrel_syntax::link::{link, Module};
-use kestrel_syntax::{parse_at, render, render_short, Diagnostic, LineIndex, Span};
+use kestrel_syntax::link::link;
+use kestrel_syntax::{render, render_short, Diagnostic, LineIndex, Span};
 
 pub use analysis::{analyze, Analysis};
+use load::{load, Loaded};
 pub use builtin::needs_window;
 pub use prove::{prove, Proved};
 pub use reload::compile_for_reload;
@@ -92,6 +93,13 @@ pub struct Source {
     pub base: u32,
     /// Embedded in the compiler (see `builtin`), not written by the user.
     pub builtin: bool,
+    /// The full name of the module the file is: its path from the entry file's folder, `.` for
+    /// `/` and without `.kes` (`net.packet`; `net/net.kes` is `net`); a built-in module's name;
+    /// the entry file's name without `.kes`.
+    pub module: String,
+    /// Its path from the entry file's folder, with `/` (`net/packet.kes`); a built-in module's
+    /// from `<builtin>/` (`draw.kes`). Runtime errors name the file by it.
+    pub file: String,
 }
 
 /// Reads the module file at a path, without a byte order mark; `None` when it can't be read. The
@@ -101,14 +109,6 @@ pub type Read<'a> = &'a dyn Fn(&Path) -> Option<String>;
 /// Reads a module file from the disk.
 fn disk(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok().map(|text| without_bom(&text).to_string())
-}
-
-/// What `load` read: every file, and the modules parsed from them.
-struct Loaded {
-    files: Vec<Source>,
-    modules: Vec<Module>,
-    diags: Vec<Diagnostic>,
-    builtins: Vec<&'static str>,
 }
 
 /// Compiles the program whose entry file is `path` (with text `src`). The
@@ -138,10 +138,11 @@ pub fn compile_as_reading(path: &str, src: &str, style: DiagStyle, needs_main: b
 }
 
 fn compile_reading(path: &str, src: &str, style: DiagStyle, needs_main: bool, read: Read) -> (Option<Compiled>, String) {
-    let Loaded { files, modules, mut diags, builtins } = load(path, src, read);
+    let Loaded { files, modules, mut diags, missing, builtins } = load(path, src, read);
     if diags.iter().any(Diagnostic::is_error) {
         return (None, report(&files, &diags, style));
     }
+    diags.extend(missing);
     let (mut program, link_diags) = link(modules, kestrel_check::is_reserved_name);
     program.builtin_ranges = builtin_ranges(&files);
     diags.extend(link_diags);
@@ -156,8 +157,10 @@ fn compile_reading(path: &str, src: &str, style: DiagStyle, needs_main: bool, re
     let Some(tables) = tables else { return (None, text) };
     let parts: Vec<(u32, &str)> = files.iter().map(|f| (f.base, f.src.as_str())).collect();
     let mut module = kestrel_kir::lower(&program, &tables, &LineIndex::for_files(&parts));
-    // Runtime errors name the file by its base name only: a built program mustn't carry the folders.
-    module.files = files.iter().map(|f| base_name(&f.path)).collect();
+    // Runtime errors name the file by its path from the entry file's folder: a built program
+    // mustn't carry the folders above it.
+    module.files = files.iter().map(|f| f.file.clone()).collect();
+    module.module_names = files.iter().map(|f| f.module.clone()).collect();
     let sources = files;
     let files = sources.iter().map(|f| SourceFile::new(Path::new(&f.path))).collect();
     (Some(Compiled { module, files, builtins, sources }), text)
@@ -171,62 +174,6 @@ pub fn compile_file(path: &Path, style: DiagStyle, needs_main: bool) -> (Option<
     }
 }
 
-/// Parses the entry file and, transitively, every module it uses. A module
-/// `m` is `m.kes` next to the file that uses it, unless `m` is a built-in
-/// module; each file is parsed once.
-fn load(path: &str, src: &str, read: Read) -> Loaded {
-    let mut files = vec![Source { path: path.to_string(), src: src.to_string(), base: 0, builtin: false }];
-    let mut by_name: HashMap<String, usize> = HashMap::from([(stem(path), 0)]);
-    let (mut modules, mut diags, mut builtins) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut next_expr, mut next_bind) = (0, 0);
-    let mut i = 0;
-    while i < files.len() {
-        let (program, file_diags) = parse_at(&files[i].src, files[i].base, next_expr, next_bind);
-        (next_expr, next_bind) = (program.expr_count, program.bind_count);
-        diags.extend(file_diags);
-        if !files[i].builtin {
-            diags.extend(user_natives(&program.items));
-        }
-        let dir = Path::new(&files[i].path).parent().map(Path::to_path_buf).unwrap_or_default();
-        for item in &program.items {
-            let Item::Use(u) = item else { continue };
-            for c in &u.clauses {
-                if let Some((name, text)) = builtin::find(&c.module) {
-                    // A built-in module wins over a file of the same name; say so rather than
-                    // quietly ignoring the file. (The file may be the program itself.)
-                    let clash = dir.join(format!("{name}.kes"));
-                    if !files[i].builtin && clash.exists() {
-                        let is_program = same_file(&clash, Path::new(&files[0].path));
-                        diags.push(Diagnostic::error(c.module_span, builtin::shadowed(name, is_program)));
-                    }
-                    if !builtins.contains(&name) {
-                        builtins.push(name);
-                        push_file(&mut files, builtin::path(name), text.to_string(), true);
-                    }
-                    continue;
-                }
-                if by_name.contains_key(&c.module) {
-                    continue;
-                }
-                // A missing file is reported by `link`, which knows where it was named.
-                let file = dir.join(format!("{}.kes", c.module));
-                if let Some(text) = read(&file) {
-                    by_name.insert(c.module.clone(), files.len());
-                    push_file(&mut files, file.to_string_lossy().into_owned(), text, false);
-                }
-            }
-        }
-        modules.push(Module { name: stem(&files[i].path), program });
-        i += 1;
-    }
-    Loaded { files, modules, diags, builtins }
-}
-
-/// Whether `a` and `b` are the same file on disk.
-fn same_file(a: &Path, b: &Path) -> bool {
-    a == b || matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
-}
-
 /// The span offsets of the built-in modules' source, which may name types (like `GpuHandle`)
 /// that the user's own files can't.
 fn builtin_ranges(files: &[Source]) -> Vec<std::ops::Range<u32>> {
@@ -234,10 +181,10 @@ fn builtin_ranges(files: &[Source]) -> Vec<std::ops::Range<u32>> {
 }
 
 /// Adds a file after the last one in the shared span space.
-fn push_file(files: &mut Vec<Source>, path: String, src: String, builtin: bool) {
+fn push_file(files: &mut Vec<Source>, path: String, src: String, builtin: bool, module: String, file: String) {
     let last = files.last().expect("the entry file");
     let base = last.base + last.src.len() as u32 + 1;
-    files.push(Source { path, src, base, builtin });
+    files.push(Source { path, src, base, builtin, module, file });
 }
 
 /// An error for each `native` declaration: only built-in modules have them.
@@ -279,7 +226,7 @@ fn report(files: &[Source], diags: &[Diagnostic], style: DiagStyle) -> String {
     out
 }
 
-/// `geom.kes` for `C:\game\geom.kes` (and `draw.kes` for a built-in module's `<builtin>/draw.kes`).
+/// `main.kes` for `C:\game\main.kes`: the entry file's name, as runtime errors write it.
 fn base_name(path: &str) -> String {
     Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
 }
@@ -290,10 +237,11 @@ mod tests {
 
     #[test]
     fn built_in_ranges_cover_exactly_the_built_in_files_source() {
-        let mut files = vec![Source { path: "main.kes".into(), src: "use draw\n".into(), base: 0, builtin: false }];
-        push_file(&mut files, "<builtin>/draw.kes".into(), "pub f()\n".into(), true);
-        push_file(&mut files, "geom.kes".into(), "pub g()\n".into(), false);
-        push_file(&mut files, "<builtin>/input.kes".into(), "pub h()\n".into(), true);
+        let (module, file) = ("main".to_string(), "main.kes".to_string());
+        let mut files = vec![Source { path: "main.kes".into(), src: "use draw\n".into(), base: 0, builtin: false, module, file }];
+        for (path, src, builtin) in [("<builtin>/draw.kes", "pub f()\n", true), ("geom.kes", "pub g()\n", false), ("<builtin>/input.kes", "pub h()\n", true)] {
+            push_file(&mut files, path.into(), src.into(), builtin, String::new(), String::new());
+        }
         // Each file starts one past the end of the one before it.
         assert_eq!(files.iter().map(|f| f.base).collect::<Vec<_>>(), [0, 10, 19, 28]);
         assert_eq!(builtin_ranges(&files), [10..18, 28..36]);

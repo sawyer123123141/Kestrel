@@ -54,6 +54,12 @@ pub(crate) fn shadowed(name: &str, is_program: bool) -> String {
     }
 }
 
+/// The error for a dotted `use` whose first name is built-in module `name` (`use draw.shapes`):
+/// a dotted name is never a built-in module, and a folder named like one would hide it.
+pub(crate) fn folder_named(name: &str) -> String {
+    format!("`{name}` is a built-in module, so a folder can't be called {name}; rename the folder")
+}
+
 /// The error for a `native` declaration in a file the user wrote.
 pub(crate) const USER_NATIVE: &str = "only Kestrel's built-in modules can declare native functions";
 
@@ -61,7 +67,7 @@ pub(crate) const USER_NATIVE: &str = "only Kestrel's built-in modules can declar
 mod tests {
     use std::path::Path;
 
-    use super::{find, is_path, path, shadowed};
+    use super::{find, folder_named, is_path, path, shadowed};
 
     #[test]
     fn every_module_is_found_by_name() {
@@ -77,6 +83,7 @@ mod tests {
     fn the_shadowing_error_says_which_file_to_rename() {
         assert!(shadowed("draw", false).ends_with("draw.kes can't be used as a module; rename the file"));
         assert!(shadowed("draw", true).ends_with("a program can't be called draw.kes; rename the program"));
+        assert_eq!(folder_named("draw"), "`draw` is a built-in module, so a folder can't be called draw; rename the folder");
     }
 
     #[test]

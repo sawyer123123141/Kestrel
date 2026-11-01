@@ -1,6 +1,7 @@
 //! The walk over one module's items that rewrites its names (see `link`), keeping track of
 //! the locals in scope.
 
+use super::chains::dotted;
 use super::{Rewriter, Scoped};
 use crate::settle::names_generic_item;
 use crate::ast::*;
@@ -59,6 +60,12 @@ impl Rewriter<'_> {
                 if matches!(rule.as_str(), "equatable" | "ordered" | "key") {
                     continue;
                 }
+                if rule.contains('.') {
+                    if let Some(q) = self.full_type(&rule.clone(), *span) {
+                        *rule = q;
+                    }
+                    continue;
+                }
                 match self.qualified(rule) {
                     Some(q) => *rule = q,
                     None => self.unseen(&rule.clone(), *span, "type", false),
@@ -70,6 +77,12 @@ impl Rewriter<'_> {
     /// The interfaces in `struct S: A, B` are named like types.
     fn iface_names(&mut self, ifaces: &mut [(String, crate::span::Span)]) {
         for (name, span) in ifaces {
+            if name.contains('.') {
+                if let Some(q) = self.full_type(&name.clone(), *span) {
+                    *name = q;
+                }
+                continue;
+            }
             match self.qualified(name) {
                 Some(q) => *name = q,
                 None => self.unseen(&name.clone(), *span, "type", false),
@@ -100,7 +113,12 @@ impl Rewriter<'_> {
                 // A placeholder is left alone, before anything else: a constant of the module
                 // with its name doesn't turn it into `geom.N`, and an entry-file item named
                 // like it is no "unknown type".
-                if !self.placeholders.contains(name) {
+                if name.contains('.') {
+                    // A full name, `net.packet.Packet`: the module, then its item.
+                    if let Some(q) = self.full_type(&name.clone(), t.span) {
+                        *name = q;
+                    }
+                } else if !self.placeholders.contains(name) {
                     match self.qualified(name) {
                         Some(q) => *name = q,
                         None => self.unseen(&name.clone(), t.span, "type", false),
@@ -179,13 +197,15 @@ impl Rewriter<'_> {
     }
 
     fn expr(&mut self, e: &mut Expr) {
+        // `net.packet` alone: a module, not a value.
+        if matches!(e.kind, ExprKind::Field { .. }) && self.module(e).is_some() {
+            let name = dotted(e).unwrap_or_default();
+            return self.not_a_value(&name, e.span);
+        }
         match &mut e.kind {
             ExprKind::Ident(name) => match self.scope.get(name.as_str()) {
                 Some(Scoped::Own(q, _) | Scoped::Item(q, _)) => *name = q.clone(),
-                Some(Scoped::Module(_)) => {
-                    let msg = format!("`{name}` is a module; use one of its items, like `{name}.something`");
-                    self.error(e.span, msg);
-                }
+                Some(Scoped::Module(_) | Scoped::Ambiguous(..) | Scoped::Prefix(_)) => self.not_a_value(&name.clone(), e.span),
                 None => self.unseen(&name.clone(), e.span, "name", true),
             },
             ExprKind::Call { name, name_span, args } => {
@@ -196,11 +216,11 @@ impl Rewriter<'_> {
                 self.args(args);
             }
             ExprKind::MethodCall { receiver, name, name_span, args } => match self.module(receiver) {
-                // `m.f(...)` calls `f` from module `m`.
+                // `m.f(...)` (or `net.m.f(...)`) calls `f` from module `m`.
                 Some(m) => {
                     let (name, name_span, mut args) = (name.clone(), *name_span, std::mem::take(args));
                     self.args(&mut args);
-                    let name = self.exported(m, &name, name_span).unwrap_or(name);
+                    let name = self.item_of(m, &name, name_span, receiver.span).unwrap_or(name);
                     e.kind = ExprKind::Call { name, name_span, args };
                 }
                 None => {
@@ -212,7 +232,7 @@ impl Rewriter<'_> {
                 // `m.LIMIT`, or `m.Shape` in `m.Shape.Circle(...)`.
                 Some(m) => {
                     let (name, name_span) = (name.clone(), *name_span);
-                    let name = self.exported(m, &name, name_span).unwrap_or(name);
+                    let name = self.item_of(m, &name, name_span, base.span).unwrap_or(name);
                     e.kind = ExprKind::Ident(name);
                 }
                 None => self.expr(base),

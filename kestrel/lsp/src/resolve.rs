@@ -52,7 +52,8 @@ fn in_uses(a: &Analysis, offset: u32) -> Option<Symbol> {
     let within = |s: Span| s.start <= offset && offset <= s.end;
     for c in a.uses.first()?.iter().flat_map(|u| &u.clauses) {
         if within(c.module_span) {
-            let source = a.sources.iter().find(|s| stem(&s.path) == c.module)?;
+            // The entry file is in the folder full names start from, so its `use` names are full.
+            let source = a.sources.iter().find(|s| s.module == c.module)?;
             return Some(Symbol::new(format!("module {}", c.module), Some(Span { start: source.base, end: source.base })));
         }
         if let Some((name, _)) = c.names.iter().find(|(_, s)| within(*s)) {
@@ -61,10 +62,6 @@ fn in_uses(a: &Analysis, offset: u32) -> Option<Symbol> {
         }
     }
     None
-}
-
-fn stem(path: &str) -> String {
-    std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 struct Resolver<'a> {

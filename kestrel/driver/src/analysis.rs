@@ -12,7 +12,9 @@ use crate::{builtin_ranges, load, Loaded, Read, Source};
 pub struct Analysis {
     /// The entry file first, then each module it uses (built-in ones included).
     pub sources: Vec<Source>,
-    /// Each source's `use` declarations, by source index (linking drops them from `program`).
+    /// Each module's `use` declarations, by module, the entry file's first (linking drops them
+    /// from `program`). A module is one source today; a built-in module of several parts would be
+    /// one module of several sources.
     pub uses: Vec<Vec<UseDecl>>,
     /// The linked program, when every file parsed.
     pub program: Option<Program>,
@@ -35,11 +37,12 @@ impl Analysis {
 /// the modules it uses with `read`. Each stage runs only when the one before it found no error,
 /// as for `kestrel check`. With `needs_main` false the entry file is checked as a module.
 pub fn analyze(path: &str, src: &str, needs_main: bool, read: Read) -> Analysis {
-    let Loaded { files, modules, mut diags, .. } = load(path, src, read);
+    let Loaded { files, modules, mut diags, missing, .. } = load(path, src, read);
     let uses = modules.iter().map(|m| use_decls(&m.program)).collect();
     if diags.iter().any(Diagnostic::is_error) {
         return Analysis { sources: files, uses, program: None, tables: None, diags };
     }
+    diags.extend(missing);
     let (mut program, link_diags) = link(modules, kestrel_check::is_reserved_name);
     program.builtin_ranges = builtin_ranges(&files);
     diags.extend(link_diags);

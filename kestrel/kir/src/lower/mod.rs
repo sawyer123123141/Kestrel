@@ -93,6 +93,7 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
         init,
         main,
         files: Vec::new(),
+        module_names: Vec::new(),
         tables,
         not_inlined: Vec::new(),
         assumptions,

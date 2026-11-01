@@ -102,11 +102,12 @@ impl Owners {
     }
 }
 
-/// A name as the report writes it: a module's function without the module's name (`geom.helper`
-/// is `helper` in `geom.kes`), and the same for each of a copy's types (`geom.Stack[geom.Item].put`
-/// is `Stack[Item].put`). `line` is where the function is declared.
+/// A name as the report writes it: a module's function without the module's full name
+/// (`geom.helper` is `helper` in `geom.kes`, `net.packet.helper` is `helper` in `net/packet.kes`),
+/// and the same for each of a copy's types (`geom.Stack[geom.Item].put` is `Stack[Item].put`).
+/// `line` is where the function is declared.
 pub(super) fn plain_name(m: &Module, name: &str, line: u32) -> String {
-    let Some(module) = m.files.get(unpack_line(line).1 as usize).and_then(|f| f.strip_suffix(".kes")) else { return name.to_string() };
+    let Some(module) = m.module_names.get(unpack_line(line).1 as usize) else { return name.to_string() };
     let prefix = format!("{module}.");
     // Each run of name characters (a dotted path) loses a leading `module.`.
     let mut out = String::with_capacity(name.len());

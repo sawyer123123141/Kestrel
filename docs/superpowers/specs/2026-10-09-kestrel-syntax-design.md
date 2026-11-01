@@ -303,17 +303,20 @@ use {
     noise2, lerp from math
     colors
 }
+use net.packet                  // net/packet.kes: packet.make(), net.packet.make(), net.packet.Packet
 ```
 
 - **Modules.** A module is one file, named after it, found next to the file that uses it. A file is loaded once; files may use each other.
+- **Modules in folders.** A module name may be names joined by dots, which are folders: in a file whose folder is `D`, `use net.packet` loads `D/net/packet.kes`, else `D/net/packet/packet.kes` (a folder's own file), and `use net` loads `D/net.kes`, else `D/net/net.kes`, so a module can grow into a folder without changing its users. Both at once is an error: "`net` could be net.kes or net/net.kes; remove or rename one of them". Names never go up (no `..`): a module finds modules next to it or in folders below it, never above, so every file is in the program's folder or below it. A single name that is a built-in module is the built-in; a dotted name never is, and one that starts with a built-in's name is refused ("`draw` is a built-in module, so a folder can't be called draw; rename the folder"). A missing module says where it looked: "can't find module `net.packet`: there's no net/packet.kes next to this file", or "the folder net/ has no net.kes; add one, or use a module inside it, like `use net.packet`".
+- **Full names.** A module's full name is its file's path from the program's folder, `.` for `/`, without `.kes` (`net/packet.kes` is `net.packet`; `net/net.kes` is `net`), however a file wrote its `use`; a file reached by two names (`use net.wire` from the program, `use wire` from `net/packet.kes`) is one module, loaded once. After `use net.packet` its items are reached by the last name (`packet.make()`) or the whole name as written (`net.packet.make()`), and the first name (`net`) is taken in that file. Two whole-module uses with one last name bind neither short name ("`packet` could be `net.packet` or `ui.packet`; write the full name, like `net.packet.Packet`"), except that a single name (`use draw`, `use packet`) keeps it. A file using both `net` and `net.packet` whose `net.kes` has a `pub` item `packet` is an error at the second `use`.
 - **`pub`** marks a function, struct, enum or constant as importable. Anything else stays private to its file.
 - **A module sees only its own items and its imports.** The program's own file is no exception: a module that uses `bump` from it without importing it gets "unknown function `bump`: it's in main.kes, which `util` can't see".
 - **Names must be unique.** An imported name can't collide with the file's own items, another import, or a local variable.
 - **Printing** shows a type's own name (`Point`), not `geom.Point`.
-- **Types from another module** must be imported by name; `geom.Point` doesn't work in a type position yet.
-- **Runtime errors** name the line and the file it is in: "index 5 out of bounds for length 2 on line 24 of geom.kes" (implemented 2026-10-12).
+- **Types from another module** are imported by name (`use { Point from geom }`) or written with their module, in every type position and in interface lists and rules: `geom.Point`, `net.packet.Packet`, `geom.Stack[int]`, `struct Game: rollback.Rollback`, `[G: net.packet.Shape]`. A module the file doesn't use gets "`geo` isn't a module this file uses; add `use geo`, or import the type: `use { Point from geo }`".
+- **Runtime errors** name the line and the file it is in, by its path from the program's folder: "index 5 out of bounds for length 2 on line 24 of geom.kes", "on line 12 of net/packet.kes" (implemented 2026-10-12). Contract chains and `kestrel check --report` name other files the same way (`it allocates on net/stack.kes:4`).
 
-(Implemented 2026-10-10.)
+(Implemented 2026-10-10; folders and full names 2026-11-01.)
 
 ## Types
 
@@ -880,7 +883,7 @@ main() {
 An interface can't be named `equatable`, `ordered` or `key`. Two interface rules whose methods share a name must have the same signature (a call means either), else "no type can be both `A` and `B`: their `name` methods differ". In GDScript the nearest thing is checking `has_method` before a call, which is unchecked until the line runs.
 
 **Using.**
-- **In types:** `Stack[int]`, `Pair[string, vec2]`, `list[Stack[int]]`, `map[string, Result[Level, string]]`. A generic type from another module is imported by name (`use { Stack from geom }`) and written with its types; `geom.Stack` isn't a type name in a type position.
+- **In types:** `Stack[int]`, `Pair[string, vec2]`, `list[Stack[int]]`, `map[string, Result[Level, string]]`. A generic type from another module is imported by name (`use { Stack from geom }`) or written with its module (`geom.Stack[int]`), with its types.
 - **In expressions** brackets after a name mean types when the name is a generic struct, enum or function, and an index otherwise: `best[Enemy](foes, score)`, `Stack[int]()`, `Result[int, string].Ok(value: 3)`, `Maybe[int].Nothing`, `geom.best[Enemy](...)`, `geom.Stack[int]()`; but `handlers[i](3)` indexes (a local is never hidden by an item of the same name). Written types give all of the placeholders, never some ("`Result` takes 2 types, found 1").
 - **Methods** are called on a value as usual (`ints.push(3)`); the value's type fixes the placeholders.
 - **A generic function is a value once its types are fixed:** `let f = best[Enemy]`, `let RULE = best[int]` (a constant). `let f = best` is "`best` is generic; give its types to use it as a value, like `best[int]`".
@@ -932,7 +935,7 @@ A non-empty array literal given for a `list[T]` parameter decides `T` through it
 - **Replacing a whole `var` placeholder** (`a = b`) is refused only when the placeholder may be an interface type (no built-in rule and at most one interface rule): `swap[T: equatable](var a: T, var b: T)` works, `swap[T]` doesn't ("if `T` is never an interface type, give it a built-in rule, like `[T: equatable]`").
 - **A `var` argument conflicts with an `if` or `match` argument that gives part of it** (`f(var w, if c { w.s } else { "" })`), as `f(var w, w.s)` already did; copy it into a `let` first.
 
-**Not built:** the `number` rule (arithmetic on `T`); owning types, optionals, function types and types holding functions as `T`; placeholders on methods and interfaces; default types (`[T = int]`); constant placeholders (`Grid[W, H]`); `is` type tests; specialising a generic for one type; Godot exports of generics; some but not all types written (`count_by[_, string]`); `geom.Stack[int]` in a type position; working out a generic function value's types from an expected function type (`let f: (list[Enemy]) -> Enemy? = best`); devirtualising a call on an interface `T`.
+**Not built:** the `number` rule (arithmetic on `T`); owning types, optionals, function types and types holding functions as `T`; placeholders on methods and interfaces; default types (`[T = int]`); constant placeholders (`Grid[W, H]`); `is` type tests; specialising a generic for one type; Godot exports of generics; some but not all types written (`count_by[_, string]`); working out a generic function value's types from an expected function type (`let f: (list[Enemy]) -> Enemy? = best`); devirtualising a call on an interface `T`.
 
 ## Memory
 

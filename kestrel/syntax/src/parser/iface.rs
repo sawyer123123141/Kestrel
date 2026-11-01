@@ -8,12 +8,13 @@ use crate::token::Tok;
 const IFACE_PLACEHOLDERS: &str = "interfaces don't take placeholders yet; write the interface's methods with concrete types";
 
 impl Parser {
-    /// `: A, B` after a type's name: the interfaces it implements. Empty without the colon.
+    /// `: A, B` after a type's name: the interfaces it implements (by full name too,
+    /// `rollback.Rollback`). Empty without the colon.
     pub(super) fn iface_list(&mut self) -> PResult<Vec<(String, Span)>> {
         let mut list = Vec::new();
         if self.eat(&Tok::Colon) {
             loop {
-                list.push(self.expect_ident("an interface name")?);
+                list.push(self.expect_dotted("an interface name")?);
                 if !self.eat(&Tok::Comma) {
                     break;
                 }

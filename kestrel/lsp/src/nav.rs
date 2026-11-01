@@ -109,27 +109,40 @@ pub fn builtin_dir() -> PathBuf {
     std::env::temp_dir().join("kestrel-lsp").join("builtin")
 }
 
-/// A built-in module's text written to a file (once), so go to definition can open it.
+/// A built-in module's text written to a file (once), so go to definition can open it. A part in
+/// a subfolder (`<builtin>/rollback/session.kes`) is written in that subfolder.
 fn builtin_file(path: &str, src: &str) -> Option<Url> {
-    let name = Path::new(path).file_name()?;
-    let dir = builtin_dir();
-    let file = dir.join(name);
+    let inside = Path::new(path).strip_prefix("<builtin>").ok()?;
+    let file = builtin_dir().join(inside);
     if std::fs::read_to_string(&file).ok().as_deref() != Some(src) {
-        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::create_dir_all(file.parent()?).ok()?;
         std::fs::write(&file, src).ok()?;
     }
     Url::from_file_path(file).ok()
 }
 
-/// Whether `path` is one of the built-in modules written by `builtin_file`: the server doesn't
-/// check those (their `native` functions are only allowed inside the compiler).
+/// Whether `path` is one of the built-in modules written by `builtin_file` (in the folder or below
+/// it): the server doesn't check those (their `native` functions are only allowed inside the
+/// compiler).
 pub fn is_builtin_copy(path: &Path) -> bool {
-    path.parent().is_some_and(|d| crate::docs::key(d) == crate::docs::key(&builtin_dir()))
+    let dir = crate::docs::key(&builtin_dir());
+    path.ancestors().skip(1).any(|d| crate::docs::key(d) == dir)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Shift;
+    use super::{builtin_dir, builtin_file, is_builtin_copy, Shift};
+
+    #[test]
+    fn a_built_in_part_is_written_in_its_subfolder() {
+        let url = builtin_file("<builtin>/navtest/part.kes", "// a part\n").expect("written");
+        let path = url.to_file_path().unwrap();
+        assert_eq!(path, builtin_dir().join("navtest").join("part.kes"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "// a part\n");
+        assert!(is_builtin_copy(&path));
+        assert!(is_builtin_copy(&builtin_dir().join("draw.kes")));
+        assert!(!is_builtin_copy(&std::env::temp_dir().join("kestrel-lsp").join("draw.kes")));
+    }
 
     #[test]
     fn offsets_move_past_an_edit() {

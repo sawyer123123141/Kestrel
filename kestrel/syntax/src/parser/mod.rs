@@ -234,6 +234,18 @@ impl Parser {
         }
     }
 
+    /// `a.b.c`: names joined by dots (a module's name, or an interface's full name), and the span
+    /// of them all.
+    fn expect_dotted(&mut self, what: &str) -> PResult<(String, Span)> {
+        let (mut name, mut span) = self.expect_ident(what)?;
+        while self.eat(&Tok::Dot) {
+            let (part, end) = self.expect_ident(what)?;
+            name = format!("{name}.{part}");
+            span = span.to(end);
+        }
+        Ok((name, span))
+    }
+
     fn skip_newlines(&mut self) {
         while self.at(&Tok::Newline) || self.at(&Tok::Semi) {
             self.bump();

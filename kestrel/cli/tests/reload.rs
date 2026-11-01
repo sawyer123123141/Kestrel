@@ -264,3 +264,19 @@ fn an_edit_that_removes_setup_and_frame_keeps_the_old_code() {
     );
     follow(&mut s, last, 2, 2, 10);
 }
+
+#[test]
+fn an_edit_to_a_module_in_a_folder_reloads() {
+    // The counter's constant lives in `net/tune.kes`, which the program loads as `net.tune`.
+    let dir = scratch("folder");
+    fs::create_dir_all(dir.join("net")).unwrap();
+    let tune = dir.join("net").join("tune.kes");
+    fs::write(&tune, "pub let K = 2\n").unwrap();
+    let path = dir.join("prog.kes");
+    fs::write(&path, counter(2).replace("let K = 2\n", "use net.tune\n").replace("s.n * K", "s.n * tune.K")).unwrap();
+    let mut s = Session::start(kestrel_run(&path, 100_000, &[]), &path);
+    let last = begin(&mut s, 2, 3);
+    s.edit_file(&tune, "pub let K = 3\n");
+    s.wait_err("reloaded prog.kes in ");
+    follow(&mut s, last, 2, 3, 5);
+}

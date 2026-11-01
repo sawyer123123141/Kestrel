@@ -80,6 +80,7 @@ fn module() -> Module {
         init: None,
         main: None,
         files: Vec::new(),
+        module_names: Vec::new(),
         tables: Vec::new(),
         not_inlined: Vec::new(),
         assumptions: Vec::new(),

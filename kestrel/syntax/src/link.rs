@@ -1,13 +1,15 @@
 //! Links several parsed files (modules) into one program. Items of every
-//! module except the entry are renamed `module.name`, and each module's
-//! references are rewritten to what they mean there: its own items, names
-//! it imported with `use { a from m }`, and `m.a` for a module it imported
-//! whole with `use m`.
+//! module except the entry are renamed `module.name` (with the module's full name, like
+//! `net.packet.Packet`), and each module's references are rewritten to what they mean there: its
+//! own items, names it imported with `use { a from m }`, and `m.a` for a module it imported
+//! whole with `use m` (by its last name `m`, or by the whole dotted name it was written with).
 //!
 //! Each module sees only those names, so this is also where a local is checked against them:
 //! a local can't take the name of one of its module's items or imports. (The checker sees the
 //! linked program, where another module's items, the entry file's included, are all global.)
 
+mod chains;
+mod imports;
 mod walk;
 
 use std::collections::HashMap;
@@ -18,9 +20,16 @@ use crate::settle::{settle, ItemKind};
 use crate::span::Span;
 
 pub struct Module {
-    /// The file name without `.kes`.
+    /// The module's full name: its file's path from the entry file's folder, `.` for `/` and
+    /// without `.kes` (`net/packet.kes` is `net.packet`, and `net/net.kes` is `net`). The entry
+    /// file's is its file name without `.kes`; its items keep their own names.
     pub name: String,
+    /// Its file's path from the entry file's folder, with `/` (`net/packet.kes`), for messages.
+    pub file: String,
     pub program: Program,
+    /// The module each `use` clause of `program` names, by its index in the modules, in the order
+    /// the clauses are written: `None` for one that wasn't found (the loader said why).
+    pub resolved: Vec<Option<usize>>,
 }
 
 struct Export {
@@ -35,15 +44,20 @@ enum Scoped {
     Own(String, ItemKind),
     /// An item imported with `use { a from m }`, by its qualified name and kind.
     Item(String, ItemKind),
-    /// A module imported whole with `use m`.
+    /// A module imported whole with `use m` or `use a.m`, by its last name.
     Module(usize),
+    /// The last name of two modules imported whole (`use net.packet`, `use ui.packet`), as they
+    /// were written: neither has the short name, and each is reached by its whole name.
+    Ambiguous(String, String),
+    /// The first name of a dotted `use` (`net` of `use net.packet`, as written), which only
+    /// starts a module's name.
+    Prefix(String),
 }
 
 /// Links `modules`, the entry file first. Their ids must already be
 /// distinct (see `parse_at`). `reserved` says which names no item may take (the checker
 /// refuses such an item, so `link` says nothing more about it).
 pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<Diagnostic>) {
-    let index: HashMap<String, usize> = modules.iter().enumerate().map(|(i, m)| (m.name.clone(), i)).collect();
     let exports: Vec<HashMap<String, Export>> = modules
         .iter()
         .enumerate()
@@ -65,6 +79,7 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
         })
         .collect();
     let names: Vec<String> = modules.iter().map(|m| m.name.clone()).collect();
+    let files: Vec<String> = modules.iter().map(|m| m.file.clone()).collect();
     let (mut expr_count, mut bind_count) = (0, 0);
     let mut items = Vec::new();
     let mut proves = Vec::new();
@@ -75,16 +90,30 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
         bind_count = bind_count.max(m.program.bind_count);
         proves.extend(m.program.proves);
         hex_literals.extend(m.program.hex_literals);
-        let (scope, locals) = (HashMap::new(), Vec::new());
-        let visible = HashMap::new();
-        let mut rw =
-            Rewriter { scope, exports: &exports, names: &names, module: i, locals, placeholders: Vec::new(), visible, reserved, diags: Vec::new() };
+        let mut rw = Rewriter {
+            scope: HashMap::new(),
+            chains: HashMap::new(),
+            shorts: HashMap::new(),
+            used: Vec::new(),
+            exports: &exports,
+            names: &names,
+            files: &files,
+            module: i,
+            locals: Vec::new(),
+            placeholders: Vec::new(),
+            visible: HashMap::new(),
+            reserved,
+            diags: Vec::new(),
+        };
         for (name, e) in &exports[i] {
             rw.scope.insert(name.clone(), Scoped::Own(e.qualified.clone(), e.kind));
         }
+        let mut resolved = m.resolved.iter().copied();
         for item in &m.program.items {
             if let Item::Use(u) = item {
-                rw.import(u, &index);
+                for c in &u.clauses {
+                    rw.import(c, resolved.next().flatten());
+                }
             }
         }
         rw.visible = rw.visible_kinds();
@@ -103,8 +132,17 @@ pub fn link(modules: Vec<Module>, reserved: fn(&str) -> bool) -> (Program, Vec<D
 
 struct Rewriter<'a> {
     scope: HashMap<String, Scoped>,
+    /// The modules imported whole by a dotted name, by that name as written (`net.packet`).
+    chains: HashMap<String, usize>,
+    /// Whether the module holding each short name (`Scoped::Module`) was written as a single name.
+    shorts: HashMap<String, bool>,
+    /// Every module imported whole, however it is reached.
+    used: Vec<usize>,
     exports: &'a [HashMap<String, Export>],
+    /// Each module's full name, by index; 0 is the entry file.
     names: &'a [String],
+    /// Each module's file from the entry file's folder, by index.
+    files: &'a [String],
     /// The module being rewritten, an index into `names`; 0 is the entry file.
     module: usize,
     /// The locals and parameters in scope at this point of the module's code.
@@ -125,46 +163,17 @@ impl Rewriter<'_> {
         self.diags.push(Diagnostic::error(span, msg));
     }
 
-    fn import(&mut self, u: &UseDecl, index: &HashMap<String, usize>) {
-        for c in &u.clauses {
-            let Some(&m) = index.get(&c.module) else {
-                let msg = format!("can't find module `{0}`: there's no `{0}.kes` next to this file", c.module);
-                self.error(c.module_span, msg);
-                continue;
-            };
-            if c.names.is_empty() {
-                if self.scope.contains_key(&c.module) {
-                    self.error(c.module_span, format!("`{}` is already defined here", c.module));
-                } else {
-                    self.scope.insert(c.module.clone(), Scoped::Module(m));
-                }
-                continue;
-            }
-            for (name, span) in &c.names {
-                let Some(q) = self.exported(m, name, *span) else { continue };
-                if self.scope.contains_key(name) {
-                    self.error(*span, format!("`{name}` is already defined here"));
-                } else {
-                    let kind = self.exports[m][name.as_str()].kind;
-                    self.scope.insert(name.clone(), Scoped::Item(q, kind));
-                }
-            }
-        }
-    }
-
     /// The kind of every item the module's scope reaches, by qualified name.
     fn visible_kinds(&self) -> HashMap<String, ItemKind> {
         let mut kinds = HashMap::new();
         for s in self.scope.values() {
-            match s {
-                Scoped::Own(q, k) | Scoped::Item(q, k) => {
-                    kinds.insert(q.clone(), *k);
-                }
-                Scoped::Module(m) => {
-                    for e in self.exports[*m].values().filter(|e| e.is_pub) {
-                        kinds.insert(e.qualified.clone(), e.kind);
-                    }
-                }
+            if let Scoped::Own(q, k) | Scoped::Item(q, k) = s {
+                kinds.insert(q.clone(), *k);
+            }
+        }
+        for &m in &self.used {
+            for e in self.exports[m].values().filter(|e| e.is_pub) {
+                kinds.insert(e.qualified.clone(), e.kind);
             }
         }
         kinds
@@ -195,20 +204,11 @@ impl Rewriter<'_> {
         }
     }
 
-    /// The module `e` names, when it's a bare `use m` alias.
-    fn module(&self, e: &Expr) -> Option<usize> {
-        let ExprKind::Ident(n) = &e.kind else { return None };
-        match self.scope.get(n) {
-            Some(Scoped::Module(m)) => Some(*m),
-            _ => None,
-        }
-    }
-
     /// A local or parameter comes into scope. It can't take the name of one of the module's
     /// items or imports (the checker only sees the qualified names, so it couldn't tell).
     fn binding(&mut self, b: &Binding) {
         match self.scope.get(&b.name) {
-            Some(Scoped::Module(_) | Scoped::Item(..)) => {
+            Some(Scoped::Module(_) | Scoped::Item(..) | Scoped::Ambiguous(..) | Scoped::Prefix(_)) => {
                 self.error(b.span, format!("`{}` is already defined: it's imported; pick another name", b.name));
             }
             Some(Scoped::Own(..)) => {
