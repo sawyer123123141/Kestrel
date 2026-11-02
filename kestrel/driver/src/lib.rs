@@ -6,6 +6,7 @@ mod analysis;
 mod builtin;
 pub mod host;
 mod load;
+mod prelude;
 mod prove;
 pub mod reload;
 
