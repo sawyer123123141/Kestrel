@@ -49,6 +49,7 @@ mod stubs;
 mod subst;
 mod tables;
 mod temps;
+mod try_expr;
 mod vec_builtins;
 mod vec_make;
 mod vector;

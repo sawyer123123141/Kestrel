@@ -31,8 +31,8 @@ impl<'a> BodyChecker<'a> {
     /// Checks a statement; returns `Never` when control can't continue past it.
     pub(super) fn check_stmt(&mut self, s: &Stmt) -> Ty {
         match s {
-            Stmt::Let { is_var, bind, ty, value, else_block: Some(otherwise), .. } => {
-                self.check_let_else(*is_var, bind, ty.as_ref(), value, otherwise);
+            Stmt::Let { is_var, bind, ty, value, else_name, else_block: Some(otherwise), .. } => {
+                self.check_let_else(*is_var, bind, ty.as_ref(), value, else_name.as_ref(), otherwise);
                 Ty::Unit
             }
             Stmt::Let { is_var, bind, ty, value, .. } => {

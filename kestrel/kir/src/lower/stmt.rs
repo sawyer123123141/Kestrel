@@ -17,8 +17,8 @@ impl<'a> FnLowerer<'a> {
     /// Lowers `s` into `out`, whatever annotation it has.
     pub(crate) fn plain_stmt(&mut self, s: &ast::Stmt, out: &mut Vec<Stmt>) {
         let lowered = match s {
-            ast::Stmt::Let { bind, value, else_block: Some(otherwise), .. } => {
-                return self.let_else(bind, value, otherwise, out);
+            ast::Stmt::Let { bind, value, else_name, else_block: Some(otherwise), .. } => {
+                return self.let_else(bind, value, else_name.as_ref(), otherwise, out);
             }
             ast::Stmt::Let { bind, value, .. } => {
                 let idx = self.bind_local(bind);
@@ -112,6 +112,7 @@ impl<'a> FnLowerer<'a> {
                 return;
             }
             ast::ExprKind::Match { .. } => return self.match_stmt(e, out),
+            ast::ExprKind::Try(inner) => return self.try_stmt(e, inner, out),
             ast::ExprKind::Call { args, .. } => (None, args),
             // `fill[int](var s, 1, 2)`: a user `TypeCall` is the call it stands for (P28).
             ast::ExprKind::TypeCall { args, .. } if !super::expr::builtin_type_call(e) => (None, args),

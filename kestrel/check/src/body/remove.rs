@@ -281,7 +281,7 @@ fn expr_removes(x: &Expr, name: &str) -> bool {
             e(cond) || block_removes(then_block, name) || else_block.as_ref().is_some_and(|b| block_removes(b, name))
         }
         ExprKind::Match { scrutinee, arms } => e(scrutinee) || arms.iter().any(|a| block_removes(&a.body, name)),
-        ExprKind::Unary { expr, .. } => e(expr),
+        ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => e(expr),
         ExprKind::Binary { lhs, rhs, .. } => e(lhs) || e(rhs),
         ExprKind::Call { args: a, .. } | ExprKind::TypeCall { args: a, .. } => args(a),
         ExprKind::MethodCall { receiver, args: a, .. } => e(receiver) || args(a),

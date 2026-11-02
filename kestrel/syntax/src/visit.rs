@@ -23,7 +23,7 @@ pub fn each_expr_in(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 }
             }
         }
-        ExprKind::Unary { expr, .. } => each_expr_in(expr, f),
+        ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => each_expr_in(expr, f),
         ExprKind::Binary { lhs, rhs, .. } => {
             each_expr_in(lhs, f);
             each_expr_in(rhs, f);

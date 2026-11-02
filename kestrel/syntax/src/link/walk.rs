@@ -145,13 +145,18 @@ impl Rewriter<'_> {
 
     fn stmt(&mut self, s: &mut Stmt) {
         match s {
-            Stmt::Let { bind, ty, value, else_block, .. } => {
+            Stmt::Let { bind, ty, value, else_name, else_block, .. } => {
                 self.expr(value);
                 if let Some(t) = ty {
                     self.ty(t);
                 }
                 if let Some(b) = else_block {
+                    let mark = self.locals.len();
+                    if let Some(n) = else_name {
+                        self.binding(n);
+                    }
                     self.block(b);
+                    self.locals.truncate(mark);
                 }
                 self.binding(bind);
             }
@@ -255,7 +260,7 @@ impl Rewriter<'_> {
                 self.block(&mut c.body);
                 self.locals.truncate(mark);
             }
-            ExprKind::Unary { expr, .. } => self.expr(expr),
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.expr(expr),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);

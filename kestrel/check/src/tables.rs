@@ -288,6 +288,8 @@ pub struct Tables {
     /// `let x = opt else` bindings that read the optional's payload in place (views), instead of
     /// moving or copying it. KIR maps uses of `x` to the payload's place and doesn't drop `x`.
     pub let_else_views: HashSet<LocalId>,
+    /// `try r`: the result type of the function or closure it returns from (see `body/try_expr.rs`).
+    pub try_rets: HashMap<ExprId, Ty>,
     /// `for ... in` loops over lists whose body removes the loop's item (`remove b`), by their
     /// iterated expression: KIR compacts the list as such a loop runs.
     pub removing_loops: HashSet<ExprId>,

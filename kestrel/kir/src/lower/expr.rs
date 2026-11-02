@@ -90,6 +90,7 @@ impl<'a> FnLowerer<'a> {
                 let op = if *op == ast::UnaryOp::Neg { UnOp::Neg } else { UnOp::BitNot };
                 self.vec_unary(op, v, ty, line)
             }
+            ast::ExprKind::Try(inner) => self.try_value(e, inner),
             ast::ExprKind::Unary { op, expr } => {
                 let op = match op {
                     ast::UnaryOp::Neg => UnOp::Neg,

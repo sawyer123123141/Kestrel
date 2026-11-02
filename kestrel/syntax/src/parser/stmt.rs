@@ -127,9 +127,18 @@ impl Parser {
         }
         self.expect(&Tok::Assign, "`=`")?;
         let value = self.expr()?;
-        let else_block = if self.eat(&Tok::Else) { Some(self.block()?) } else { None };
+        let (mut else_name, mut else_block) = (None, None);
+        if self.eat(&Tok::Else) {
+            // `else why { ... }`: the name the error gets in the block.
+            if let Tok::Ident(name) = self.peek().clone() {
+                let span = self.span();
+                self.bump();
+                else_name = Some(self.binding(name, span));
+            }
+            else_block = Some(self.block()?);
+        }
         let end = else_block.as_ref().map_or(value.span, |b| b.span);
-        Ok(Stmt::Let { is_var, bind, ty, span: start.to(end), value, else_block })
+        Ok(Stmt::Let { is_var, bind, ty, span: start.to(end), value, else_name, else_block })
     }
 
     /// `for ...`, after `par` when `par` is true (only the `in` forms then).

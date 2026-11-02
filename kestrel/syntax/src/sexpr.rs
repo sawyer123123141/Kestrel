@@ -5,10 +5,11 @@ use crate::ast::*;
 impl Stmt {
     pub fn to_sexpr(&self) -> String {
         match self {
-            Stmt::Let { is_var, bind, value, else_block, .. } => {
+            Stmt::Let { is_var, bind, value, else_name, else_block, .. } => {
                 let kw = if *is_var { "var" } else { "let" };
+                let name = else_name.as_ref().map_or(String::new(), |n| format!("{} ", n.name));
                 match else_block {
-                    Some(b) => format!("({kw} {} {} else {})", bind.name, value.to_sexpr(), b.to_sexpr()),
+                    Some(b) => format!("({kw} {} {} else {name}{})", bind.name, value.to_sexpr(), b.to_sexpr()),
                     None => format!("({kw} {} {})", bind.name, value.to_sexpr()),
                 }
             }
@@ -79,6 +80,7 @@ impl Expr {
                 };
                 format!("({sym} {})", expr.to_sexpr())
             }
+            ExprKind::Try(inner) => format!("(try {})", inner.to_sexpr()),
             ExprKind::Binary { op, lhs, rhs } => format!("({} {} {})", op.symbol(), lhs.to_sexpr(), rhs.to_sexpr()),
             ExprKind::Call { name, args, .. } => format!("(call {name}{})", args_sexpr(args)),
             ExprKind::Field { base, name, .. } => format!("(. {} {name})", base.to_sexpr()),

@@ -1,0 +1,102 @@
+// `try r` is the `Ok` value of `r`, or else returns its error from the function (decision 9).
+// It binds like `-` and `not`: `try f(x) + 1` is `(try f(x)) + 1`.
+pure digit(c: string) -> Result[int, string] {
+    let digits = "0123456789"
+    for i from 0 to 10 {
+        if digits[i] == c {
+            return i
+        }
+    }
+    Result.Err(error: "bad digit {c}")
+}
+
+pure sum_digits(s: string) -> Result[int, string] {
+    var acc = 0
+    for i from 0 to s.len {
+        acc += try digit(s[i])
+    }
+    acc
+}
+
+pure total(a: string, b: string) -> Result[int, string] {
+    try sum_digits(a) + try sum_digits(b)
+}
+
+show(r: Result[int, string]) {
+    match r {
+        Ok o { print("total {o.value}") }
+        Err e { print("stopped: {e.error}") }
+    }
+}
+
+// On an optional, in a function that returns an optional: the value, or a return of `none`.
+pure first_even(xs: list[int]) -> int? {
+    for x in xs {
+        if x % 2 == 0 {
+            return x
+        }
+    }
+    none
+}
+
+pure doubled(xs: list[int]) -> int? {
+    let v = try first_even(xs)
+    v * 2
+}
+
+// As a statement it drops the `Ok` value.
+check(n: int) -> Result[bool, string] {
+    if n < 0 {
+        return Result.Err(error: "{n} is negative")
+    }
+    true
+}
+
+run(a: int, b: int) -> Result[bool, string] {
+    try check(a)
+    print("checked {a}")
+    try check(b)
+    print("checked {b}")
+    true
+}
+
+// From a variable and a parameter, the error moving up.
+pure from_local(s: string) -> Result[int, string] {
+    let r = digit(s)
+    let v = try r
+    v + 1
+}
+
+pure from_param(r: Result[int, string]) -> Result[int, string] {
+    (try r) * 3
+}
+
+// In generic code the error types must be the same.
+pure listed[T](r: Result[T, string]) -> Result[list[T], string] {
+    [try r]
+}
+
+main() {
+    show(total("12", "4"))
+    show(total("1", "2x"))
+    print(doubled([1, 3]), doubled([1, 4]))
+    print(run(1, 2))
+    print(run(1, -2))
+    print(from_local("4"), from_local("y"))
+    print(from_param(2), from_param(Result.Err(error: "none given")))
+    print(listed(Result[int, string].Ok(value: 2)), listed(Result[float, string].Err(error: "no")))
+    let parse = (s: string) -> Result[int, string] { try digit(s) * 10 }
+    print(parse("3"), parse("q"))
+}
+// expect: total 7
+// expect: stopped: bad digit x
+// expect: none 8
+// expect: checked 1
+// expect: checked 2
+// expect: Result[bool, string].Ok(value: true)
+// expect: checked 1
+// expect: Result[bool, string].Err(error: "-2 is negative")
+// expect: Result[int, string].Ok(value: 5) Result[int, string].Err(error: "bad digit y")
+// expect: Result[int, string].Ok(value: 6) Result[int, string].Err(error: "none given")
+// expect: Result[list[int], string].Ok(value: [2]) Result[list[float], string].Err(error: "no")
+// expect: Result[int, string].Ok(value: 30) Result[int, string].Err(error: "bad digit q")

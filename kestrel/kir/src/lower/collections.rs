@@ -5,6 +5,7 @@ use kestrel_check::LocalId;
 use kestrel_syntax::ast;
 
 use super::helpers::{has_heap, owning};
+use super::try_expr::Unwrap;
 use crate::rename::{rename_stmts, Subst};
 use super::FnLowerer;
 use crate::ir::*;
@@ -162,46 +163,53 @@ impl<'a> FnLowerer<'a> {
         }
     }
 
-    /// `let x = opt else { ... }`: the optional goes into a temporary; when
-    /// it's `none` the `else` block runs (and leaves), otherwise its value
-    /// moves out into `x` (the temporary is fresh, so nothing is shared).
-    pub(crate) fn let_else(&mut self, bind: &ast::Binding, value: &ast::Expr, otherwise: &ast::Block, out: &mut Vec<Stmt>) {
+    /// `let x = opt else { ... }`: the optional goes into a temporary; when it's `none` the `else`
+    /// block runs (and leaves), otherwise its value moves out into `x` (the temporary is fresh, so
+    /// nothing is shared). A `Result` the same way, its error named `why` in the block (`else why`)
+    /// reading the temporary's payload in place.
+    pub(crate) fn let_else(&mut self, bind: &ast::Binding, value: &ast::Expr, why: Option<&ast::Binding>, otherwise: &ast::Block, out: &mut Vec<Stmt>) {
         if let Some(&var) = self.t.bind_local.get(&bind.id) {
             if self.t.let_else_views.contains(&var) {
-                return self.let_else_view(var, value, otherwise, out);
+                return self.let_else_view(var, value, why, otherwise, out);
             }
         }
         let line = self.line(value.span);
+        let how = self.unwrap_of(self.coerce(value.id).unwrap_or_else(|| self.ty(value.id)));
         let v = self.value(value);
-        let opt = self.temp(v.ty);
-        out.push(Stmt::Let(opt, v));
-        let tag = Expr { kind: ExprKind::Tag(Place::local(opt)), ty: KTy::U8, line };
-        let zero = Expr { kind: ExprKind::Int(0), ty: KTy::U8, line };
-        let cond = Expr { kind: ExprKind::Binary(BinOp::Eq, Box::new(tag), Box::new(zero)), ty: KTy::Bool, line };
-        let then_body = self.block_stmts(otherwise);
-        out.push(Stmt::If { cond, then_body, else_body: Vec::new() });
+        let opt = Place::local(self.temp(v.ty));
+        out.push(Stmt::Let(opt.root, v));
+        self.else_block(how, &opt, why, otherwise, line, out);
         let idx = self.bind_local(bind);
         let ty = self.locals[idx.0 as usize].ty;
-        let payload = Place { root: opt, path: vec![Proj::Payload] };
-        out.push(Stmt::Let(idx, Expr { kind: ExprKind::Load(payload), ty, line }));
+        out.push(Stmt::Let(idx, Expr { kind: ExprKind::Load(how.value(&opt)), ty, line }));
         self.declared(idx);
     }
 
     /// `let x = opt else { ... }` where the checker made `x` a view (see
     /// `Tables::let_else_views`): uses of `x` read the payload of `opt` in place. Nothing is
     /// copied and `x` isn't dropped: whoever owns `opt` drops it.
-    fn let_else_view(&mut self, var: LocalId, value: &ast::Expr, otherwise: &ast::Block, out: &mut Vec<Stmt>) {
+    fn let_else_view(&mut self, var: LocalId, value: &ast::Expr, why: Option<&ast::Binding>, otherwise: &ast::Block, out: &mut Vec<Stmt>) {
         let line = self.line(value.span);
+        let how = self.unwrap_of(self.ty(value.id));
         // A copy here would drop an owning payload twice, so a view must be a place.
         let mut opt = self.place(value).expect("the checker makes views only of places");
         self.stabilize(&mut opt, out);
-        let tag = Expr { kind: ExprKind::Tag(opt.clone()), ty: KTy::U8, line };
-        let zero = Expr { kind: ExprKind::Int(0), ty: KTy::U8, line };
-        let cond = Expr { kind: ExprKind::Binary(BinOp::Eq, Box::new(tag), Box::new(zero)), ty: KTy::Bool, line };
+        self.else_block(how, &opt, why, otherwise, line, out);
+        self.elems.insert(var, how.value(&opt));
+    }
+
+    /// The `else` block of `let ... else`, run when `opt` (unwrapped as `how`) has no value, with
+    /// `why` reading the error in place.
+    fn else_block(&mut self, how: Unwrap, opt: &Place, why: Option<&ast::Binding>, otherwise: &ast::Block, line: u32, out: &mut Vec<Stmt>) {
+        if let (Unwrap::Result { err, .. }, Some(why)) = (how, why) {
+            let l = self.t.bind_local[&why.id];
+            let mut at = opt.clone();
+            at.path.push(Proj::Variant(err, 0));
+            self.elems.insert(l, at);
+        }
+        let cond = self.has_no_value(how, opt, line);
         let then_body = self.block_stmts(otherwise);
         out.push(Stmt::If { cond, then_body, else_body: Vec::new() });
-        opt.path.push(Proj::Payload);
-        self.elems.insert(var, opt);
     }
 
     /// `e` lowered as a value about to be stored somewhere new.

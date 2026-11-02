@@ -30,7 +30,7 @@ impl<'a> FnLowerer<'a> {
     }
 
     /// `tag(place) == variant`
-    fn tag_is(&self, place: &Place, variant: u32, line: u32) -> Expr {
+    pub(super) fn tag_is(&self, place: &Place, variant: u32, line: u32) -> Expr {
         let tag = Expr { kind: ExprKind::Tag(place.clone()), ty: KTy::U8, line };
         let v = Expr { kind: ExprKind::Int(variant as i64), ty: KTy::U8, line };
         Expr { kind: ExprKind::Binary(BinOp::Eq, Box::new(tag), Box::new(v)), ty: KTy::Bool, line }

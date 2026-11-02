@@ -1,0 +1,71 @@
+// `let x = r else why { ... }` on a `Result`: `x` is the `Ok` value, and the block runs on an
+// error, with `why` naming it (decision 10). Without a name the error is dropped.
+pure find(id: int) -> Result[string, string] {
+    if id == 1 {
+        return Result.Ok(value: "ana")
+    }
+    Result.Err(error: "no name")
+}
+
+greet(id: int) {
+    let name = find(id) else why {
+        print("why: {why}")
+        return
+    }
+    print("hello {name}")
+}
+
+pure length(id: int) -> int {
+    let name = find(id) else { return 0 }
+    name.len
+}
+
+// The error passed up with more said about it.
+pure upper(id: int) -> Result[int, string] {
+    let name = find(id) else why {
+        return Result.Err(error: "lookup failed: {why}")
+    }
+    name.len
+}
+
+// A variable that can't change is read in place.
+pure from_local(id: int) -> string {
+    let r = find(id)
+    let name = r else why {
+        return "({why})"
+    }
+    name
+}
+
+main() {
+    greet(1)
+    greet(2)
+    print(length(1), length(2))
+    print(upper(1), upper(2))
+    print(from_local(1), from_local(2))
+    for id in [2, 1, 3] {
+        let name = find(id) else why {
+            print("skip {id}: {why}")
+            continue
+        }
+        print("found {name}")
+    }
+    let rs: list[Result[int, string]] = [4, Result.Err(error: "five")]
+    for r in rs {
+        let n = r else why {
+            print("item: {why}")
+            break
+        }
+        print("item {n}")
+    }
+}
+// expect: hello ana
+// expect: why: no name
+// expect: 3 0
+// expect: Result[int, string].Ok(value: 3) Result[int, string].Err(error: "lookup failed: no name")
+// expect: ana (no name)
+// expect: skip 2: no name
+// expect: found ana
+// expect: skip 3: no name
+// expect: item 4
+// expect: item: five

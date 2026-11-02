@@ -62,6 +62,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Ident(name) => self.ident(e, name, want),
             ExprKind::Unary { op, expr } => self.unary(*op, expr, want),
+            ExprKind::Try(inner) => self.check_try(e, inner),
             ExprKind::Binary { op, lhs, rhs } => {
                 let ty = self.binary(e, *op, lhs, rhs, want);
                 self.check_kept_parts(&[lhs, rhs], Later::Operand);
@@ -273,6 +274,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::If { .. } => self.check_if(e, Expect::Discard),
             ExprKind::Match { .. } => self.check_match(e, Expect::Discard),
             ExprKind::Call { .. } | ExprKind::MethodCall { .. } | ExprKind::CallValue { .. } => self.check_discarded_call(e),
+            // `try f()` as a statement: the `Ok` value is dropped, and an error is returned.
+            ExprKind::Try(_) => self.check_expr(e, None),
             // A written call or construction (`fill[int](var s, 1, 2)`) is the `Call` it stands for.
             _ if user_type_call(e) => self.check_discarded_call(e),
             _ => {

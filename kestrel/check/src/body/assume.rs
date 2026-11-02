@@ -81,7 +81,7 @@ impl<'a> BodyChecker<'a> {
                 Some((e.span, NO_CALLS))
             }
             ExprKind::Field { base, .. } => self.calls_in(base),
-            ExprKind::Unary { expr, .. } => self.calls_in(expr),
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.calls_in(expr),
             ExprKind::Binary { lhs, rhs, .. } => self.calls_in(lhs).or_else(|| self.calls_in(rhs)),
             ExprKind::Brackets { .. } => unreachable!("settled after parsing"),
             _ => None,

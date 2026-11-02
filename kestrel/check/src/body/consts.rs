@@ -123,7 +123,7 @@ fn names_used(e: &Expr, out: &mut Vec<(String, Span)>) {
             names_used(callee, out);
             args(a, out);
         }
-        ExprKind::Unary { expr, .. } => names_used(expr, out),
+        ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => names_used(expr, out),
         ExprKind::Binary { lhs, rhs, .. } => {
             names_used(lhs, out);
             names_used(rhs, out);
@@ -264,7 +264,8 @@ pub(crate) fn is_const_expr(e: &Expr, t: &Tables) -> bool {
         | ExprKind::Call { .. }
         | ExprKind::CallValue { .. }
         | ExprKind::If { .. }
-        | ExprKind::Match { .. } => false,
+        | ExprKind::Match { .. }
+        | ExprKind::Try(_) => false,
     }
 }
 

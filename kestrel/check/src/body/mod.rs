@@ -20,6 +20,7 @@ mod hex;
 mod iface;
 mod let_else;
 mod ok_wrap;
+mod try_expr;
 mod in_block;
 mod infer;
 mod inferred;

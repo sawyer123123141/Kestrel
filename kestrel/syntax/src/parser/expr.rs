@@ -122,6 +122,11 @@ impl Parser {
 
     fn unary(&mut self) -> PResult<Expr> {
         let start = self.span();
+        if self.eat(&Tok::Try) {
+            let inner = self.nested(Self::unary)?;
+            let span = start.to(inner.span);
+            return Ok(self.expr_node(ExprKind::Try(Box::new(inner)), span));
+        }
         let op = match self.peek() {
             Tok::Minus => UnaryOp::Neg,
             Tok::Not => UnaryOp::Not,

@@ -30,6 +30,100 @@ main() {
     let d: Result[int, string] = true
     let fine: Result[int?, string] = 3
 }
+
+// `try` and `let ... else why` (decisions 9 and 10).
+pure half(n: int) -> Result[int, string] {
+    if n % 2 != 0 {
+        return Result.Err(error: "odd")
+    }
+    n / 2
+}
+
+pure code(n: int) -> Result[int, int] {
+    Result.Err(error: n)
+}
+
+pure maybe(n: int) -> int? {
+    none
+}
+
+run() {
+    let x = try half(2)
+}
+
+pure load(n: int) -> Result[int, string] {
+    let x = try code(n)
+    x
+}
+
+pure both(n: int) -> Result[int, string] {
+    let a = try maybe(n)
+    a
+}
+
+pure other(n: int) -> int? {
+    let a = try half(n)
+    a
+}
+
+pure plain(n: int) -> Result[int, string] {
+    try n
+}
+
+pure halves(xs: list[int]) -> Result[int, string] {
+    par for x in xs {
+        let h = try half(x)
+    }
+    xs[0]
+}
+
+pure closures(n: int) -> int {
+    let f = (k: int) { let v = try half(k) }
+    n
+}
+
+let K = try half(4)
+
+struct Cfg {
+    n: int = try half(4)
+}
+
+pure count(s: string) -> Result[int, string] {
+    if s == "" {
+        return Result.Err(error: "empty")
+    }
+    s.len
+}
+
+tally(names: list[string]) -> Result[int, string] {
+    var total = 0
+    arena {
+        let n = try count("{names.len}")
+        total += n
+    }
+    total
+}
+
+pure name_opt(o: int?) -> int {
+    let v = o else why { return 0 }
+    v
+}
+
+pure shadow(id: int) -> int {
+    let why = 3
+    let v = half(id) else why { return 0 }
+    v
+}
+
+pure stays(id: int) -> int {
+    let v = half(id) else why { let w = why }
+    v
+}
+
+pure typed(id: int) -> int {
+    let v: string = half(id) else { return 0 }
+    0
+}
 // error 7: `Result` is a built-in type; pick another name
 // error 11: `Result` is a built-in type; pick another name
 // error 20: `World` owns an `Arena`, so it can't be `T` yet
@@ -39,3 +133,17 @@ main() {
 // error 28: `Result[string, string]` has one type for its value and its error; write `Result.Ok(value: ...)` or `Result.Err(error: ...)`
 // error 29: this is an `int`, the error type of `Result[float, int]`; write `Result.Err(error: ...)` for an error
 // error 30: expected Result[int, string], found bool
+// error 51: `try` returns the error from `run`, which returns nothing; handle it here, like `let x = r else why { print(why); return }`
+// error 55: `try` passes the error up, but this error is an `int` and `load` returns `Result[int, string]`; handle it with `match` or `let ... else why { }`
+// error 60: `try` on an optional needs a function that returns an optional; write `let x = opt else { return Result.Err(error: "...") }`
+// error 65: `try` on a `Result` needs a function that returns a `Result`; write `let x = r else { return none }`
+// error 70: `try` takes a `Result` or an optional, found int
+// error 75: `try` can't leave a `par for` body; handle the error with `let ... else why { }`
+// error 81: write the closure's result type, like `-> Result[int, string]`, to use `try` in it
+// error 85: `try` goes inside a function
+// error 88: `try` goes inside a function
+// error 101: `try` would return this error out of the `arena { }` block that made it, which frees it; handle it inside the block with `let ... else why { }`
+// error 108: an optional has no error to name; write `else { ... }`
+// error 114: `why` is already defined; Kestrel doesn't allow shadowing
+// error 119: the `else` block has to leave
+// error 124: this `Result[int, string]` holds an `int`, but `v` is declared as `string`; change the type or leave it out

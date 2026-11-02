@@ -147,12 +147,15 @@ impl<'p> Finder<'p> {
 
     fn stmt(&mut self, s: &'p Stmt) {
         match s {
-            Stmt::Let { bind, ty, value, else_block, .. } => {
+            Stmt::Let { bind, ty, value, else_name, else_block, .. } => {
                 self.hit(bind.span, Hit::Binding(bind));
                 if let Some(t) = ty {
                     self.ty(t);
                 }
                 self.expr(value);
+                if let Some(n) = else_name {
+                    self.hit(n.span, Hit::Binding(n));
+                }
                 if let Some(b) = else_block {
                     self.block(b);
                 }
@@ -239,7 +242,7 @@ impl<'p> Finder<'p> {
                 }
                 self.block(&c.body);
             }
-            ExprKind::Unary { expr, .. } => self.expr(expr),
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.expr(expr),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);

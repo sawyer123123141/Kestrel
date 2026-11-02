@@ -60,7 +60,7 @@ impl<'a> BodyChecker<'a> {
 }
 
 /// `a` or `an` before a type's name, as it is said: "an `int`", "a `u8`", "a `string`".
-fn article(name: &str) -> &'static str {
+pub(super) fn article(name: &str) -> &'static str {
     if name.starts_with(['a', 'e', 'i', 'o', 'A', 'E', 'I', 'O']) {
         "an"
     } else {

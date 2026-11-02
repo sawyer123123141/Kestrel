@@ -20,8 +20,9 @@ fn stop_builtin(e: &Expr) -> Option<Builtin> {
     }
 }
 
-/// The first call of `fail` or `exit` inside the expression `e` of a constant or a field default,
-/// with the error it gets: "the value of a constant can't call `fail`; call it inside a function".
+/// The first call of `fail` or `exit`, or `try`, inside the expression `e` of a constant or a field
+/// default, with the error it gets: "the value of a constant can't call `fail`; call it inside a
+/// function", "`try` goes inside a function".
 pub(crate) fn stop_in_constant(e: &Expr) -> Option<(Span, String)> {
     if let Some(b) = stop_builtin(e) {
         return Some((e.span, format!("the value of a constant can't call `{}`; call it inside a function", b.name())));
@@ -32,6 +33,7 @@ pub(crate) fn stop_in_constant(e: &Expr) -> Option<(Span, String)> {
         ExprKind::MethodCall { receiver, args, .. } => stop_in_constant(receiver).or_else(|| in_args(args)),
         ExprKind::Field { base, .. } => stop_in_constant(base),
         ExprKind::Unary { expr, .. } => stop_in_constant(expr),
+        ExprKind::Try(_) => Some((e.span, "`try` goes inside a function".to_string())),
         ExprKind::Binary { lhs, rhs, .. } => stop_in_constant(lhs).or_else(|| stop_in_constant(rhs)),
         ExprKind::ArrayLit(items) => items.iter().find_map(stop_in_constant),
         ExprKind::MapLit(entries) => entries.iter().find_map(|(k, v)| stop_in_constant(k).or_else(|| stop_in_constant(v))),

@@ -1,0 +1,46 @@
+// `try` is a `return`: inside an `arena { }` or `in` block it leaves the block, freeing what the
+// block made, and passes up an error made outside it (decision 9).
+pure check(n: int) -> Result[int, string] {
+    if n < 0 {
+        return Result.Err(error: "{n} is negative")
+    }
+    n
+}
+
+sum(xs: list[int]) -> Result[int, string] {
+    let first = check(xs[0])
+    var total = 0
+    arena {
+        let names = ["a{xs[0]}", "b{xs.len}"]
+        total += names.len
+        total += try first
+    }
+    total
+}
+
+struct Store {
+    mem: Arena
+}
+
+keep(var s: Store, n: int) -> Result[int, string] {
+    let r = check(n)
+    var made = 0
+    in s.mem {
+        let label = "n{n}"
+        made = label.len
+        made += try r
+    }
+    made
+}
+
+main() {
+    print(sum([3, 4]))
+    print(sum([-1, 4]))
+    var s = Store(mem: Arena())
+    print(keep(var s, 5))
+    print(keep(var s, -7))
+}
+// expect: Result[int, string].Ok(value: 5)
+// expect: Result[int, string].Err(error: "-1 is negative")
+// expect: Result[int, string].Ok(value: 7)
+// expect: Result[int, string].Err(error: "-7 is negative")

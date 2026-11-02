@@ -109,10 +109,13 @@ impl Settler {
 
     fn stmt(&mut self, s: &mut Stmt) {
         match s {
-            Stmt::Let { bind, value, else_block, .. } => {
+            Stmt::Let { bind, value, else_name, else_block, .. } => {
                 self.expr(value);
                 if let Some(b) = else_block {
+                    let mark = self.locals.len();
+                    self.locals.extend(else_name.as_ref().map(|n| n.name.clone()));
                     self.block(b);
+                    self.locals.truncate(mark);
                 }
                 self.locals.push(bind.name.clone());
             }
@@ -181,7 +184,7 @@ impl Settler {
                     }
                 }
             }
-            ExprKind::Unary { expr, .. } => self.expr(expr),
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.expr(expr),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
                 self.expr(rhs);

@@ -47,7 +47,7 @@ impl<'a> BodyChecker<'a> {
                 self.changes_in(callee, out);
                 self.changes_by_args(args, out);
             }
-            ExprKind::Unary { expr, .. } => self.changes_in(expr, out),
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.changes_in(expr, out),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.changes_in(lhs, out);
                 self.changes_in(rhs, out);

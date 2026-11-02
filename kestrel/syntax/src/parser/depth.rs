@@ -85,7 +85,7 @@ impl Parser {
                 InterpPart::Expr(e) => Some(e),
                 InterpPart::Lit(_) => None,
             })),
-            ExprKind::Unary { expr, .. } => self.height(expr) + 1,
+            ExprKind::Unary { expr, .. } | ExprKind::Try(expr) => self.height(expr) + 1,
             ExprKind::Binary { lhs, rhs, .. } => self.height(lhs).max(self.height(rhs)) + 1,
             ExprKind::Call { args, .. } | ExprKind::TypeCall { args, .. } => self.tallest(args.iter().map(|a| &a.value)),
             ExprKind::If { cond, .. } => self.height(cond) + 1,

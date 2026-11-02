@@ -170,10 +170,15 @@ impl<'a> FnLowerer<'a> {
     }
 
     pub(crate) fn return_stmt(&mut self, value: Option<&ast::Expr>, out: &mut Vec<Stmt>) {
-        let mut v = value.map(|v| {
+        let v = value.map(|v| {
             let v = self.expr(v);
             self.owned(v, true)
         });
+        self.return_lowered(v, out);
+    }
+
+    /// A `return` of `v`, already lowered and safe to return (`owned`), from inside every scope.
+    pub(crate) fn return_lowered(&mut self, mut v: Option<Expr>, out: &mut Vec<Stmt>) {
         // Unlocking only writes the maps' headers, so it goes first: a map
         // returned from inside a loop over it must leave unlocked.
         let (unlocks, cleanup): (Vec<Stmt>, Vec<Stmt>) =

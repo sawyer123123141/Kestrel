@@ -133,7 +133,7 @@
     },
     "keyword": {
       "patterns": [
-        { "match": "\\b(if|else|while|for|from|to|in|par|match|return|break|continue|arena)\\b", "name": "keyword.control.kestrel" },
+        { "match": "\\b(if|else|while|for|from|to|in|par|match|return|break|continue|arena|try)\\b", "name": "keyword.control.kestrel" },
         { "match": "\\b(let|var)\\b", "name": "storage.type.kestrel" },
         { "match": "\\b(pub|pure|native)\\b", "name": "storage.modifier.kestrel" },
         { "match": "\\b(struct|enum|interface)\\b", "name": "storage.type.kestrel" },

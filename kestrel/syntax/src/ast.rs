@@ -229,9 +229,10 @@ pub struct Block {
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
-    /// `let x = v`, or `let x = opt else { ... }`, which unwraps an optional
-    /// and runs the `else` block (which must leave) when it's `none`.
-    Let { is_var: bool, bind: Binding, ty: Option<TypeExpr>, value: Expr, else_block: Option<Block>, span: Span },
+    /// `let x = v`, or `let x = opt else { ... }`, which unwraps an optional (or a `Result`) and
+    /// runs the `else` block (which must leave) when it's `none` (or an error). `else_name` is the
+    /// name the error gets in the block: `let x = r else why { ... }`.
+    Let { is_var: bool, bind: Binding, ty: Option<TypeExpr>, value: Expr, else_name: Option<Binding>, else_block: Option<Block>, span: Span },
     Assign { target: Expr, op: AssignOp, value: Expr, span: Span },
     While { cond: Expr, body: Block, span: Span },
     ForRange { var: Binding, start: Expr, end: Expr, body: Block, span: Span },
@@ -272,6 +273,9 @@ pub enum ExprKind {
     Interp(Vec<InterpPart>),
     Ident(String),
     Unary { op: UnaryOp, expr: Box<Expr> },
+    /// `try r`: the value inside a `Result` or an optional, or else a return of its error (or
+    /// `none`) from the function.
+    Try(Box<Expr>),
     Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Call { name: String, name_span: Span, args: Vec<Arg> },
     If { cond: Box<Expr>, then_block: Block, else_block: Option<Block> },
