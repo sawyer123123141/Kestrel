@@ -701,6 +701,7 @@ The user's friend asked for the IR to be inspected for redundant operations. Dum
 110. **The repo still has no `.gitattributes`** (entry 87); the CI work didn't add one. Tests.
 111. **The window, drawing, input and the Godot add-on are Windows only** (raylib on Linux would need the X11 and GL dev packages). Hot reload and replay are built on Linux but untested there, since all their tests use window programs; a reloadable program without the window should work, and no test covers it. Platforms.
 112. **`kestrel/kir/src/range/mod.rs` is 398 lines** after the round (the nest counter rule's field): split by responsibility when next touched.
+113. **The voxel race's `--release` builds got slower in the performance round** (faces 67.8 to 78.5 µs, 16%; arrays 102.6 to 107.1, 4%; `kestrel/bench/determinism/results.md`, "The performance round"), while their checked builds got faster. `find_faces` has 98 stack operands against 87 before, so the likely cause is lane B's cached list headers (decision 3) spilling in a function with many lists live in one loop; the `ADD_MAX` sweep (entry 98) was never run. Fix: cap the number of headers cached per loop (or spill none: skip the cache when the loop already holds more than N live values), measured on the race's `--release` build, old against new.
 
 ## Cheap, fix when the area is next touched
 
