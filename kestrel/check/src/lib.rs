@@ -12,6 +12,7 @@ mod sig;
 mod snapshot;
 mod str_method;
 pub mod tables;
+mod tables_iface;
 mod tables_ty;
 pub mod ty;
 mod var_stores;

@@ -11,6 +11,7 @@ use crate::ty::Ty;
 
 pub use crate::list_method::ListMethod;
 pub use crate::str_method::StrMethod;
+pub use crate::tables_iface::{IfaceId, IfaceInfo};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LocalId(pub u32);
@@ -33,10 +34,6 @@ pub const BUILTIN_STRUCTS: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EnumId(pub u32);
-
-/// An interface, an index into `Tables::ifaces`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct IfaceId(pub u32);
 
 /// An interned element type of an array or list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -187,17 +184,6 @@ pub struct EnumInfo {
     pub params: Vec<ParamId>,
     pub instance: Option<Instance<EnumId>>,
     pub concrete: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct IfaceInfo {
-    pub name: String,
-    /// Index into `Program::items`.
-    pub item: usize,
-    pub span: Span,
-    /// The methods as abstract `FnInfo`s, in declaration order: also their slot order in a
-    /// method table.
-    pub methods: Vec<FnId>,
 }
 
 #[derive(Clone, Debug)]
@@ -353,10 +339,6 @@ impl Tables {
 
     pub fn enm(&self, id: EnumId) -> &EnumInfo {
         &self.enums[id.0 as usize]
-    }
-
-    pub fn iface(&self, id: IfaceId) -> &IfaceInfo {
-        &self.ifaces[id.0 as usize]
     }
 
     pub fn elem(&self, id: ElemId) -> Ty {
