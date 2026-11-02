@@ -105,7 +105,7 @@ struct Cx<'a> {
     /// The calls the inliner left, by (caller, callee): each one's line and why.
     left_calls: HashMap<(usize, usize), Vec<(u32, &'a str)>>,
     /// The implementations of each interface method that promises something.
-    impls: HashMap<&'a str, Vec<usize>>,
+    impls: HashMap<FuncIdx, Vec<usize>>,
 }
 
 impl Cx<'_> {
@@ -226,7 +226,7 @@ impl Cx<'_> {
                 // A call that keeps `no_panic` may still run an implementation that can call
                 // itself (each fails its own contract too).
                 if let Unknown::Virtual(keeps, method) = kind {
-                    let recursion = summary::implementations_of(m, &self.impls, *method).iter().find_map(|&f| self.summaries[f].recursion.as_ref());
+                    let recursion = summary::implementations_of(&self.impls, *method).iter().find_map(|&f| self.summaries[f].recursion.as_ref());
                     if let (true, Some(chain)) = (keeps.contains(ContractSet::NO_PANIC), recursion) {
                         out.push(Failure::new(NO_PANIC, words::through_method(m, r, chain, line), Help::Report));
                     }

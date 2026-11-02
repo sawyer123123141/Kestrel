@@ -273,17 +273,7 @@ impl Parser {
             }
             let mut args = Vec::new();
             if self.at(&Tok::LBracket) {
-                (args, end) = self.nested_type(|p| {
-                    p.bump();
-                    let mut args = Vec::new();
-                    loop {
-                        args.push(p.type_expr()?);
-                        if !p.eat(&Tok::Comma) {
-                            break;
-                        }
-                    }
-                    Ok((args, p.expect(&Tok::RBracket, "`]`")?))
-                })?;
+                (args, end) = self.bracket_types()?;
             }
             TypeExpr { kind: TypeKind::Named { name, args }, span: start.to(end) }
         };
@@ -292,5 +282,20 @@ impl Parser {
             ty = TypeExpr { span: ty.span.to(end), kind: TypeKind::Optional(Box::new(ty)) };
         }
         Ok(ty)
+    }
+
+    /// `[A, B]` after a type's or an interface's name, at the `[`: the types and the `]`.
+    pub(super) fn bracket_types(&mut self) -> PResult<(Vec<TypeExpr>, Span)> {
+        self.nested_type(|p| {
+            p.bump();
+            let mut args = Vec::new();
+            loop {
+                args.push(p.type_expr()?);
+                if !p.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+            Ok((args, p.expect(&Tok::RBracket, "`]`")?))
+        })
     }
 }

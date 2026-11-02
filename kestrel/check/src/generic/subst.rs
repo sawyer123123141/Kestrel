@@ -43,8 +43,8 @@ impl Tables {
             | Ty::IVec4
             | Ty::Arena
             | Ty::Gpu
-            | Ty::Iface(_)
             | Ty::Error => true,
+            Ty::Iface(i) => self.iface(i).concrete,
         }
     }
 
@@ -108,6 +108,11 @@ impl Tables {
             }
             Ty::Enum(id) => Ty::Enum(self.subst_enum(id, s)),
             Ty::Variant(id, v) => Ty::Variant(self.subst_enum(id, s), v),
+            Ty::Iface(id) => {
+                let (def, args) = self.iface_parts(id);
+                let args = self.subst_tys(args, s);
+                Ty::Iface(self.intern_iface(def, args))
+            }
             other => unreachable!("`{other:?}` is concrete"),
         }
     }
@@ -180,6 +185,15 @@ impl Tables {
             }
             Ty::Enum(id) => Ty::Enum(self.enum_known(id, s, copy)),
             Ty::Variant(id, v) => Ty::Variant(self.enum_known(id, s, copy), v),
+            Ty::Iface(id) => {
+                let (def, args) = self.iface_parts(id);
+                let args: Vec<Ty> = args.into_iter().map(|a| self.subst_known(a, s, copy)).collect();
+                let found = self.generic.ty_list_ids.get(&args).and_then(|l| self.generic.iface_instances.get(&(def, *l)));
+                match found {
+                    Some(&inst) => Ty::Iface(inst),
+                    None => missed(self.instance_name(&self.iface(def).name, &args), copy),
+                }
+            }
             other => unreachable!("`{other:?}` is concrete"),
         }
     }

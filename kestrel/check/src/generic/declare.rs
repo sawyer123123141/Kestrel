@@ -5,20 +5,22 @@
 //! function's inside `add_fn`, where its `FnId` (the owner) is made (P29). Invalid placeholders
 //! are still registered, so their uses don't add errors.
 
-use kestrel_syntax::ast::{FnDecl, Item, Program, TypeParam};
+use kestrel_syntax::ast::{FnDecl, IfaceRef, Item, Program, TypeParam};
 use kestrel_syntax::{Diagnostic, Span};
 
 use crate::collect::BUILTINS;
+use crate::collect_ty::TypeScope;
 use crate::generic::{GenericOwner, ParamId, ParamInfo};
 use crate::tables::{EnumId, FnId, IfaceId, StructId, Tables, BUILTIN_STRUCTS, RESULT};
 
 /// The three built-in rules. They are words only in a rule list.
 const RULE_WORDS: [&str; 3] = ["equatable", "ordered", "key"];
 
-/// Phases 1 and 2 for structs and enums: registers each generic declaration's placeholders
-/// (checking their names), then resolves their rules; and refuses interfaces named after a rule.
+/// Phases 1 and 2 for structs, enums and interfaces: registers each generic declaration's
+/// placeholders (checking their names), then resolves their rules; and refuses interfaces named
+/// after a rule.
 pub(crate) fn declare_type_params(program: &Program, t: &mut Tables, diags: &mut Vec<Diagnostic>) {
-    let (mut struct_id, mut enum_id) = (BUILTIN_STRUCTS, 0);
+    let (mut struct_id, mut enum_id, mut iface_id) = (BUILTIN_STRUCTS, 0, 0);
     let mut declared: Vec<(Vec<ParamId>, &[TypeParam])> = Vec::new();
     for item in &program.items {
         match item {
@@ -36,12 +38,19 @@ pub(crate) fn declare_type_params(program: &Program, t: &mut Tables, diags: &mut
                 t.enums[id.0 as usize].params = params.clone();
                 declared.push((params, &e.type_params));
             }
+            Item::Interface(i) => {
+                let id = IfaceId(iface_id);
+                iface_id += 1;
+                let params = register(&i.type_params, GenericOwner::Iface(id), t, diags);
+                t.ifaces[id.0 as usize].params = params.clone();
+                declared.push((params, &i.type_params));
+            }
             _ => {}
         }
     }
     for (params, decls) in declared {
-        for (p, decl) in params.into_iter().zip(decls) {
-            apply_rules(p, &decl.rules, t, diags);
+        for (&p, decl) in params.iter().zip(decls) {
+            apply_rules(p, &decl.rules, &params, t, diags);
         }
     }
     for item in &program.items {
@@ -59,7 +68,7 @@ pub(crate) fn declare_type_params(program: &Program, t: &mut Tables, diags: &mut
 pub(crate) fn declare_fn_params(f: &FnDecl, id: FnId, t: &mut Tables, diags: &mut Vec<Diagnostic>) -> Vec<ParamId> {
     let params = register(&f.type_params, GenericOwner::Fn(id), t, diags);
     for (&p, decl) in params.iter().zip(&f.type_params) {
-        apply_rules(p, &decl.rules, t, diags);
+        apply_rules(p, &decl.rules, &params, t, diags);
     }
     params
 }
@@ -108,30 +117,49 @@ fn name_error(name: &str, earlier: &[TypeParam], t: &Tables, builtin: bool) -> O
     }
 }
 
-/// Resolves a placeholder's rules: interface names, or the three words.
-fn apply_rules(p: ParamId, rules: &[(String, Span)], t: &mut Tables, diags: &mut Vec<Diagnostic>) {
+/// Resolves a placeholder's rules: interfaces (an instance with its types, which may name the
+/// placeholders `params` of the same list: `[G: Rollback[I], I: equatable]`), or the three words.
+fn apply_rules(p: ParamId, rules: &[IfaceRef], params: &[ParamId], t: &mut Tables, diags: &mut Vec<Diagnostic>) {
     let (mut ifaces, mut equatable, mut ordered, mut key) = (Vec::new(), false, false, false);
-    let mut seen: Vec<&str> = Vec::new();
-    for (rule, span) in rules {
-        if seen.contains(&rule.as_str()) {
-            diags.push(Diagnostic::error(*span, format!("`{rule}` is listed twice")));
+    let mut seen: Vec<String> = Vec::new();
+    let scope = TypeScope { params, own: None };
+    for r in rules {
+        let (rule, span) = (r.to_sexpr(), r.span);
+        if seen.contains(&rule) {
+            diags.push(Diagnostic::error(span, format!("`{rule}` is listed twice")));
             continue;
         }
-        seen.push(rule);
-        match rule.as_str() {
+        seen.push(rule.clone());
+        if RULE_WORDS.contains(&r.name.as_str()) && !r.args.is_empty() {
+            diags.push(Diagnostic::error(span, format!("`{}` takes no types", r.name)));
+            continue;
+        }
+        match r.name.as_str() {
             "equatable" => equatable = true,
             "ordered" => ordered = true,
             "key" => key = true,
-            _ => match t.iface_by_name.get(rule) {
-                Some(&i) if ifaces.contains(&i) => diags.push(Diagnostic::error(*span, format!("`{rule}` is listed twice"))),
-                Some(&i) => ifaces.push(i),
-                None => {
-                    let msg = format!("`{rule}` isn't an interface or a built-in rule (`equatable`, `ordered` or `key`)");
-                    diags.push(Diagnostic::error(*span, msg));
-                    // Its methods are unknown: a call of one isn't reported again.
+            _ if !t.iface_by_name.contains_key(&r.name) => {
+                let msg = format!("`{}` isn't an interface or a built-in rule (`equatable`, `ordered` or `key`)", r.name);
+                diags.push(Diagnostic::error(span, msg));
+                // Its methods are unknown: a call of one isn't reported again.
+                t.generic.refused_rules.insert(p);
+            }
+            _ => {
+                let Some(i) = crate::iface::resolve_ref(r, &scope, t, diags) else {
                     t.generic.refused_rules.insert(p);
+                    continue;
+                };
+                // Decision 17: one instance of an interface on one placeholder.
+                let def = t.iface_parts(i).0;
+                if ifaces.contains(&i) {
+                    diags.push(Diagnostic::error(span, format!("`{rule}` is listed twice")));
+                } else if let Some(&other) = ifaces.iter().find(|&&o| t.iface_parts(o).0 == def) {
+                    let (name, a, b) = (t.param_name(p), &t.iface(other).name, &t.iface(i).name);
+                    diags.push(Diagnostic::error(span, format!("`{name}` can't have both `{a}` and `{b}`; keep one")));
+                } else {
+                    ifaces.push(i);
                 }
-            },
+            }
         }
     }
     let info = &mut t.generic.params[p.0 as usize];
@@ -156,12 +184,19 @@ pub(crate) fn check_rule_clashes(program: &Program, t: &Tables, diags: &mut Vec<
                 _ => continue,
             },
             GenericOwner::Fn(f) => &t.func(f).decl(program).type_params,
+            GenericOwner::Iface(i) => match &program.items[t.iface(i).item] {
+                Item::Interface(d) => &d.type_params,
+                _ => continue,
+            },
         };
-        // Each interface rule once, with where it is written.
+        // Each interface rule once, with where it is written: the instance of the interface it
+        // names (one per interface, decision 17).
         let mut rules: Vec<(IfaceId, Span)> = Vec::new();
-        for (rule, span) in &decl[info.index as usize].rules {
-            if let Some(&i) = t.iface_by_name.get(rule).filter(|i| !rules.iter().any(|(j, _)| j == *i)) {
-                rules.push((i, *span));
+        for r in &decl[info.index as usize].rules {
+            let Some(&def) = t.iface_by_name.get(&r.name) else { continue };
+            let found = info.ifaces.iter().find(|&&i| t.iface_parts(i).0 == def && !rules.iter().any(|(j, _)| *j == i));
+            if let Some(&i) = found {
+                rules.push((i, r.span));
             }
         }
         for later in 1..rules.len() {

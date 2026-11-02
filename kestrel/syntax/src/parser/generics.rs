@@ -24,7 +24,7 @@ impl Parser {
                 let mut rules = Vec::new();
                 if p.eat(&Tok::Colon) {
                     loop {
-                        rules.push(p.expect_dotted("a rule: an interface name, `equatable`, `ordered` or `key`")?);
+                        rules.push(p.iface_ref("a rule: an interface name, `equatable`, `ordered` or `key`")?);
                         if !p.eat(&Tok::Plus) {
                             break;
                         }

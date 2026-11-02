@@ -12,7 +12,7 @@ use crate::range::events::{Event, Unknown, What};
 /// that stays on the cycle, with the tail ", so the stack may run out".
 pub(super) fn own_reasons(m: &Module, events: &[Vec<Event>]) -> Vec<Option<Reason>> {
     let impls = implementations(m);
-    let edges: Vec<Vec<(usize, u32)>> = events.iter().map(|es| es.iter().flat_map(|e| targets(m, &impls, e)).collect()).collect();
+    let edges: Vec<Vec<(usize, u32)>> = events.iter().map(|es| es.iter().flat_map(|e| targets(&impls, e)).collect()).collect();
     let succ: Vec<Vec<usize>> = edges.iter().map(|es| es.iter().map(|&(g, _)| g).collect()).collect();
     let comp = components(&succ);
     let mut size = vec![0usize; succ.len()];
@@ -34,13 +34,14 @@ pub(super) fn own_reasons(m: &Module, events: &[Vec<Event>]) -> Vec<Option<Reaso
         .collect()
 }
 
-/// The implementations of each interface method that promises something, by the method's name as
-/// its sites say it ("`Shape.area`").
-pub(crate) fn implementations(m: &Module) -> HashMap<&str, Vec<usize>> {
-    let mut out: HashMap<&str, Vec<usize>> = HashMap::new();
+/// The implementations of each interface method that promises something, by the method's stub
+/// (one per instance of a generic interface, so `Handler[Click].handle`'s never include
+/// `Handler[Key].handle`'s).
+pub(crate) fn implementations(m: &Module) -> HashMap<FuncIdx, Vec<usize>> {
+    let mut out: HashMap<FuncIdx, Vec<usize>> = HashMap::new();
     for site in &m.contracts {
-        if let (Some(by), ProveTarget::Func(f)) = (&site.required_by, site.target) {
-            out.entry(by.as_str()).or_default().push(f.0 as usize);
+        if let (Some(by), ProveTarget::Func(f)) = (site.through, site.target) {
+            out.entry(by).or_default().push(f.0 as usize);
         }
     }
     out
@@ -49,20 +50,19 @@ pub(crate) fn implementations(m: &Module) -> HashMap<&str, Vec<usize>> {
 /// The functions event `e` may run, each with the line: a call, a `par for` body, a closure made,
 /// and for a call through an interface that promises `no_panic` (so it is no unknown call for
 /// it), every implementation of the method, each checked to keep `no_panic` on its own.
-fn targets(m: &Module, impls: &HashMap<&str, Vec<usize>>, e: &Event) -> Vec<(usize, u32)> {
+fn targets(impls: &HashMap<FuncIdx, Vec<usize>>, e: &Event) -> Vec<(usize, u32)> {
     match &e.what {
         What::Call(g) | What::Body(g) | What::Closure(g) => vec![(g.0 as usize, e.line)],
         What::Unknown(Unknown::Virtual(keeps, method), _) if keeps.contains(ContractSet::NO_PANIC) => {
-            implementations_of(m, impls, *method).iter().map(|&f| (f, e.line)).collect()
+            implementations_of(impls, *method).iter().map(|&f| (f, e.line)).collect()
         }
         _ => Vec::new(),
     }
 }
 
 /// The implementations of interface method `method` (its stub), from `implementations`.
-pub(crate) fn implementations_of<'a>(m: &Module, impls: &'a HashMap<&str, Vec<usize>>, method: FuncIdx) -> &'a [usize] {
-    let name = format!("`{}`", m.funcs[method.0 as usize].name);
-    impls.get(name.as_str()).map_or(&[], Vec::as_slice)
+pub(crate) fn implementations_of(impls: &HashMap<FuncIdx, Vec<usize>>, method: FuncIdx) -> &[usize] {
+    impls.get(&method).map_or(&[], Vec::as_slice)
 }
 
 /// The strongly connected component of each node of the graph `succ` (Tarjan's algorithm, without

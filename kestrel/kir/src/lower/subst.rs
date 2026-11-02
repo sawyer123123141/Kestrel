@@ -108,6 +108,11 @@ impl<'a> FnLowerer<'a> {
                 other => unreachable!("a function type substitutes to a function type, not {other:?}"),
             },
             Res::Convert(ty) => Res::Convert(self.sub(ty)),
+            // A call through `Handler[T]` in a copy goes through its instance (`Handler[int]`).
+            Res::IfaceCall { iface, slot } => match self.sub(Ty::Iface(iface)) {
+                Ty::Iface(iface) => Res::IfaceCall { iface, slot },
+                other => unreachable!("an interface substitutes to an interface, not {other:?}"),
+            },
             Res::SimdMake(ty) => Res::SimdMake(self.sub(ty)),
             Res::ParamCall { param, iface, slot } => {
                 let method = t.iface(iface).methods[slot as usize];

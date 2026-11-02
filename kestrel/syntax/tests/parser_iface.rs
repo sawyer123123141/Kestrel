@@ -43,13 +43,35 @@ fn an_interface_can_be_pub_and_span_lines() {
 fn structs_and_enums_list_their_interfaces() {
     let p = ok("struct G: A, B {\n    x: int\n}\nenum E: A {\n    X\n}\nstruct H {\n    y: int\n}\nmain() {}\n");
     let Item::Struct(g) = &p.items[0] else { panic!("a struct") };
-    let names: Vec<&str> = g.ifaces.iter().map(|(n, _)| n.as_str()).collect();
+    let names: Vec<&str> = g.ifaces.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["A", "B"]);
     let Item::Enum(e) = &p.items[1] else { panic!("an enum") };
     assert_eq!(e.ifaces.len(), 1);
-    assert_eq!(e.ifaces[0].0, "A");
+    assert_eq!(e.ifaces[0].name, "A");
     let Item::Struct(h) = &p.items[2] else { panic!("a struct") };
     assert!(h.ifaces.is_empty());
+}
+
+#[test]
+fn interfaces_take_placeholders_and_lists_and_rules_take_types() {
+    let src = "interface Handler[E, F: equatable] {
+    pure handle(self, e: E) -> F
+}
+struct B: Handler[list[int], string], Named {
+    x: int
+}
+f[H: Handler[I, int] + Named, I](h: H) {}
+main() {}
+";
+    let p = ok(src);
+    let i = interface(&p, 0);
+    assert_eq!(kestrel_syntax::type_params_sexpr(&i.type_params), "[E, F: equatable]");
+    let Item::Struct(b) = &p.items[1] else { panic!("a struct") };
+    let refs: Vec<String> = b.ifaces.iter().map(IfaceRef::to_sexpr).collect();
+    assert_eq!(refs, ["Handler[list[int], string]", "Named"]);
+    assert_eq!(&src[b.ifaces[0].span.start as usize..b.ifaces[0].span.end as usize], "Handler");
+    let Item::Fn(f) = &p.items[2] else { panic!("a function") };
+    assert_eq!(kestrel_syntax::type_params_sexpr(&f.type_params), "[H: Handler[I, int] + Named, I]");
 }
 
 #[test]

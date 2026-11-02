@@ -7,11 +7,11 @@ enum Maybe[T] {
     wrap[U](self) -> int { 1 }
 }
 interface Named[T] {
-    pure name(self) -> string
+    pure name[U](self) -> string
 }
 native peek[T](x: T) -> int
 main() {}
 // error 3: methods can't have placeholders of their own yet; use a generic function that takes the struct instead
 // error 7: methods can't have placeholders of their own yet; use a generic function that takes the struct instead
-// error 9: interfaces don't take placeholders yet; write the interface's methods with concrete types
+// error 10: interface methods can't have placeholders of their own; put the placeholder on the interface, like `interface Handler[E]`
 // error 12: native functions can't have placeholders

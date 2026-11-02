@@ -88,3 +88,22 @@ fn the_built_in_result_names_the_prelude_and_leads_to_it() {
     let (i, name) = defined_in(&a, s.def.expect("a definition"));
     assert_eq!((a.sources[i].path.as_str(), name.as_str()), ("<builtin>/prelude.kes", "Result"));
 }
+
+#[test]
+fn hover_on_an_interface_instance_writes_its_types() {
+    let src = "interface Handler[E] {\n    pure handle(self, e: E) -> int\n}\nstruct Click: Handler[int] {\n    x: int\n    pure handle(self, e: int) -> int { e }\n}\ntotal(hs: list[Handler[int]]) -> int { hs.len }\nmain() {}\n";
+    let a = analyze("main.kes", src, true, &|_| None);
+    assert!(a.diags.is_empty(), "{:?}", a.diags);
+    let decl = src.find("Handler").unwrap() as u32;
+    let instance = "interface Handler[int] {\n    pure Handler[int].handle(self, e: int) -> int\n}";
+    // In an interface list and in a type: the instance; on the declaration: its placeholders.
+    for (off, code) in [
+        (src.find("Handler[int] {").unwrap() as u32 + 1, instance),
+        (src.find("list[Handler").unwrap() as u32 + 6, instance),
+        (decl + 1, "interface Handler[E] {\n    pure Handler.handle(self, e: E) -> int\n}"),
+    ] {
+        let s = resolve(&a, off).expect("something at the name");
+        assert_eq!(s.code, code);
+        assert_eq!(s.def.map(|d| d.start), Some(decl));
+    }
+}

@@ -197,3 +197,21 @@ fn an_interface_contract_binds_each_implementation() {
     // Both, though only `Goblin` is ever made a `Shape`: the spans are each method's name.
     assert_eq!(found, [site("Goblin.area", "area(self) -> float { self.r"), site("Box.area", "area(self) -> float { self.w")]);
 }
+
+#[test]
+fn each_instance_of_a_generic_interface_has_its_own_sites() {
+    // `Handler[int].handle` and `Handler[string].handle` are two methods: a site made from one
+    // names only its own implementations, through its own stub (decision 16).
+    let src = "interface Handler[E] {\n    @prove(no_alloc)\n    handle(self, e: E) -> int\n}\nstruct A: Handler[int] {\n    handle(self, e: int) -> int { e }\n}\nstruct B: Handler[string] {\n    handle(self, e: string) -> int { e.len }\n}\nstruct C: Handler[int] {\n    handle(self, e: int) -> int { e + 1 }\n}";
+    let (m, _) = lowered(src);
+    let by = |imp: &str| {
+        let target = ProveTarget::Func(FuncIdx(idx(&m, imp) as u32));
+        let site = m.contracts.iter().find(|s| s.target == target).unwrap_or_else(|| panic!("{imp}: {:#?}", m.contracts));
+        (site.required_by.clone().unwrap_or_default(), m.funcs[site.through.expect("an interface site").0 as usize].name.clone())
+    };
+    let int = ("`Handler[int].handle`".to_string(), "Handler[int].handle".to_string());
+    assert_eq!(by("A.handle"), int);
+    assert_eq!(by("C.handle"), int);
+    assert_eq!(by("B.handle"), ("`Handler[string].handle`".to_string(), "Handler[string].handle".to_string()));
+    assert_eq!(m.contracts.len(), 3, "{:#?}", m.contracts);
+}

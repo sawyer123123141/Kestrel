@@ -1,20 +1,21 @@
 //! Interface declarations, and the `: A, B` list after a struct's or enum's name.
 
 use super::{PResult, Parser};
-use crate::ast::{Block, FnDecl, InterfaceDecl, Item};
+use crate::ast::{Block, FnDecl, IfaceRef, InterfaceDecl, Item};
 use crate::span::Span;
 use crate::token::Tok;
 
-const IFACE_PLACEHOLDERS: &str = "interfaces don't take placeholders yet; write the interface's methods with concrete types";
+const METHOD_PLACEHOLDERS: &str =
+    "interface methods can't have placeholders of their own; put the placeholder on the interface, like `interface Handler[E]`";
 
 impl Parser {
     /// `: A, B` after a type's name: the interfaces it implements (by full name too,
-    /// `rollback.Rollback`). Empty without the colon.
-    pub(super) fn iface_list(&mut self) -> PResult<Vec<(String, Span)>> {
+    /// `rollback.Rollback`, and with types, `Handler[Click]`). Empty without the colon.
+    pub(super) fn iface_list(&mut self) -> PResult<Vec<IfaceRef>> {
         let mut list = Vec::new();
         if self.eat(&Tok::Colon) {
             loop {
-                list.push(self.expect_dotted("an interface name")?);
+                list.push(self.iface_ref("an interface name")?);
                 if !self.eat(&Tok::Comma) {
                     break;
                 }
@@ -23,15 +24,20 @@ impl Parser {
         Ok(list)
     }
 
-    /// `interface Name { [pure] name(self, params) [-> Type] ... }`, one signature per line.
+    /// `Name`, `module.Name` or either with its types, `Handler[Click]`: an interface (or a rule
+    /// word) where a list or a rule names it.
+    pub(super) fn iface_ref(&mut self, what: &str) -> PResult<IfaceRef> {
+        let (name, span) = self.expect_dotted(what)?;
+        let args = if self.at(&Tok::LBracket) { self.bracket_types()?.0 } else { Vec::new() };
+        Ok(IfaceRef { name, span, args })
+    }
+
+    /// `interface Name[P] { [pure] name(self, params) [-> Type] ... }`, one signature per line.
     pub(super) fn interface_decl(&mut self, is_pub: bool, start: Span) -> PResult<Item> {
         self.bump();
         let (name, name_span) = self.expect_ident("an interface name")?;
-        if self.at(&Tok::Lt) {
-            self.error_here(IFACE_PLACEHOLDERS);
-            return Err(());
-        }
-        self.refuse_type_params(IFACE_PLACEHOLDERS)?;
+        // `interface Named<T>` gets the message `struct Stack<T>` gets.
+        let type_params = self.type_params()?;
         self.expect(&Tok::LBrace, "`{`")?;
         let mut methods = Vec::new();
         self.skip_newlines();
@@ -51,7 +57,7 @@ impl Parser {
             self.skip_newlines();
         }
         let end = self.expect(&Tok::RBrace, "`}`")?;
-        Ok(Item::Interface(InterfaceDecl { is_pub, name, name_span, methods, span: start.to(end) }))
+        Ok(Item::Interface(InterfaceDecl { is_pub, name, name_span, type_params, methods, span: start.to(end) }))
     }
 
     /// One method signature, after any annotations.
@@ -71,6 +77,7 @@ impl Parser {
             return Err(());
         }
         let (name, name_span) = self.expect_ident("a method name")?;
+        self.refuse_type_params(METHOD_PLACEHOLDERS)?;
         if !self.at(&Tok::LParen) {
             let found = self.peek().describe();
             self.error_here(format!("expected `(` for a method, found {found}; interfaces have methods only"));

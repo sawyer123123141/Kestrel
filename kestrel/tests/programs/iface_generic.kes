@@ -1,0 +1,92 @@
+// expect: 10
+// expect: 4 4 0
+// expect: [Doubler(k: 2), Adder(n: 1)]
+// expect: 7 3
+// expect: 6
+// An interface with a placeholder (decisions 15-16): each instance, `Handler[float]` and
+// `Handler[string]`, is its own interface, with its own types, method tables and contracts.
+interface Handler[E] {
+    @prove(no_panic)
+    pure handle(self, e: E) -> float
+}
+
+interface Store[E] {
+    put(var self, e: E)
+    pure count(self) -> float
+}
+
+struct Doubler: Handler[float] {
+    k: float = 2.0
+    pure handle(self, e: float) -> float { e * self.k }
+}
+
+struct Adder: Handler[float] {
+    n: float = 10.0
+    pure handle(self, e: float) -> float { e + self.n }
+}
+
+struct Counter: Handler[string] {
+    pure handle(self, e: string) -> float {
+        if e == "four" { 4.0 } else { 1.0 }
+    }
+}
+
+enum Mode: Handler[string] {
+    Loud
+    Quiet
+    pure handle(self, e: string) -> float {
+        match self {
+            Loud { if e == "ab" { 4.0 } else { 2.0 } }
+            else { 0.0 }
+        }
+    }
+}
+
+struct Tally: Store[float], Handler[float] {
+    sum: float = 0.0
+    put(var self, e: float) { self.sum = self.sum + e }
+    pure count(self) -> float { self.sum }
+    pure handle(self, e: float) -> float { self.sum + e }
+}
+
+// A call through `Handler[float]` keeps `no_panic`: every implementation of that instance does.
+@prove(no_panic)
+total(hs: list[Handler[float]], x: float) -> float {
+    var sum = 0.0
+    for h in hs {
+        sum = sum + h.handle(x)
+    }
+    sum
+}
+
+// Lent: the call borrows the value.
+lend(h: Handler[string], s: string) -> float {
+    h.handle(s)
+}
+
+fill(var s: Store[float], n: int) {
+    for i from 0 to n {
+        s.put(2.0)
+    }
+}
+
+main() {
+    var hs = list[Handler[float]]()
+    hs.add(Doubler())
+    hs.add(Adder(n: 1.0))
+    print(total(hs, 3.0))
+
+    // Boxed: stored as an interface value.
+    let boxed: Handler[string] = Mode.Loud
+    let quiet: Handler[string] = Mode.Quiet
+    print(lend(Counter(), "four"), boxed.handle("ab"), quiet.handle("ab"))
+    print(hs)
+
+    // A `var self` method through an instance changes the value it holds.
+    var store: Store[float] = Tally()
+    fill(var store, 4)
+    let t = Tally(sum: 2.0)
+    print(t.handle(5.0), store.count() - 5.0)
+    let mixed: list[Handler[float]] = [Tally(sum: 1.0), Adder(n: 0.0)]
+    print(total(mixed, 2.0) + 1.0)
+}

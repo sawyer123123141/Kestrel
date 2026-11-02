@@ -16,8 +16,8 @@ pub enum Hit<'p> {
     Type(&'p TypeExpr),
     /// The name of a declaration (a function, struct, enum, interface, field or variant).
     Decl(Span),
-    /// An interface named in `struct S: A`.
-    Iface(&'p str, Span),
+    /// An interface named in `struct S: A` or a rule, with any types (`Handler[Click]`).
+    Iface(&'p IfaceRef),
     /// The variant name in a `match` arm: arm `arm` of the `match` expression `matched`.
     Pattern { matched: &'p Expr, arm: usize, span: Span },
     /// The name in `remove b`, keyed by the statement's span.
@@ -79,6 +79,7 @@ impl<'p> Finder<'p> {
             }
             Item::Interface(i) => {
                 self.hit(i.name_span, Hit::Decl(i.name_span));
+                self.type_params(&i.type_params);
                 i.methods.iter().for_each(|m| self.func(m));
             }
             Item::Use(_) => {}
@@ -93,9 +94,10 @@ impl<'p> Finder<'p> {
         }
     }
 
-    fn ifaces(&mut self, ifaces: &'p [(String, Span)]) {
-        for (name, span) in ifaces {
-            self.hit(*span, Hit::Iface(name, *span));
+    fn ifaces(&mut self, ifaces: &'p [IfaceRef]) {
+        for r in ifaces {
+            self.hit(r.span, Hit::Iface(r));
+            r.args.iter().for_each(|a| self.ty(a));
         }
     }
 

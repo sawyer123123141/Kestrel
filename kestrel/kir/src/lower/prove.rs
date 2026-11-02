@@ -47,7 +47,7 @@ impl Proves {
             if !info.is_abstract {
                 let target = ProveTarget::Func(FuncIdx(i as u32));
                 let snapshot = snapshot_of(t, FnId(i as u32), contracts);
-                p.sites.push(ContractSite { target, contracts: contracts.clone(), required_by: None, copy: None, snapshot });
+                p.sites.push(ContractSite { target, contracts: contracts.clone(), required_by: None, through: None, copy: None, snapshot });
                 continue;
             }
             for imp in iface::implementations(t, FnId(i as u32), &decl.name) {
@@ -56,6 +56,7 @@ impl Proves {
                     target: ProveTarget::Func(FuncIdx(imp.0)),
                     contracts: contracts.iter().map(|&(c, _)| (c, at)).collect(),
                     required_by: Some(format!("`{}`", info.name)),
+                    through: Some(FuncIdx(i as u32)),
                     copy: None,
                     snapshot: snapshot_of(t, imp, contracts),
                 });
@@ -140,7 +141,7 @@ impl FnLowerer<'_> {
                     Some(f) if self.t.func(f).copy.is_some() => Some(SiteCopy::Func(FuncIdx(f.0))),
                     _ => self.subst_instance().map(|name| SiteCopy::Instance(name.to_string())),
                 };
-                self.helpers.proves.sites.push(ContractSite { target, contracts, required_by: None, copy, snapshot: None });
+                self.helpers.proves.sites.push(ContractSite { target, contracts, required_by: None, through: None, copy, snapshot: None });
                 self.helpers.proves.loops.insert(key, id);
                 id
             }

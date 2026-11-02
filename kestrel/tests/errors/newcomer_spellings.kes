@@ -5,7 +5,7 @@
 // error 51: Kestrel writes generic types with square brackets: `list[int]?`
 // error 54: enum variants declare their data in braces: `Slime { size: int, hp: int }`
 // error 63: Kestrel writes generic types with square brackets: `Stack[T]`
-// error 66: interfaces don't take placeholders yet; write the interface's methods with concrete types
+// error 66: Kestrel writes generic types with square brackets: `Named[T]`
 // error 69: Kestrel functions don't use `fn`: write `name(params) { ... }`
 // error 70: Kestrel functions don't use `func`: write `name(params) { ... }`
 // error 71: Kestrel functions don't use `def`: write `name(params) { ... }`

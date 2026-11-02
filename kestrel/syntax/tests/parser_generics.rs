@@ -13,7 +13,7 @@ fn placeholder_lists_and_rules() {
     let p = ok(DECLS);
     let Item::Struct(s) = &p.items[0] else { panic!("a struct") };
     assert_eq!(type_params_sexpr(&s.type_params), "[T]");
-    assert_eq!(s.ifaces.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["Named"]);
+    assert_eq!(s.ifaces.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["Named"]);
     assert!(s.methods[0].type_params.is_empty());
     let Item::Enum(e) = &p.items[1] else { panic!("an enum") };
     assert_eq!(type_params_sexpr(&e.type_params), "[T, E]");
@@ -30,11 +30,14 @@ fn rule_words_stay_names_elsewhere() {
 }
 
 #[test]
-fn methods_interfaces_and_natives_have_no_placeholders() {
+fn methods_and_natives_have_no_placeholders_but_interfaces_do() {
     let m = "methods can't have placeholders of their own yet; use a generic function that takes the struct instead";
     assert!(errs("struct S[T] {\n    x: T\n    conv[U](self) -> int { 1 }\n}\nmain() {}\n").contains(&m.to_string()));
     assert!(errs("enum E[T] {\n    A\n    wrap[U](self) -> int { 1 }\n}\nmain() {}\n").contains(&m.to_string()));
-    assert_eq!(errs("interface N[T] {\n    pure name(self) -> string\n}\nmain() {}\n"), ["interfaces don't take placeholders yet; write the interface's methods with concrete types"]);
+    ok("interface N[T] {\n    pure name(self) -> T\n}\nmain() {}\n");
+    let im = "interface methods can't have placeholders of their own; put the placeholder on the interface, like `interface Handler[E]`";
+    assert_eq!(errs("interface N[T] {\n    pure name[U](self) -> U\n}\nmain() {}\n"), [im]);
+    assert_eq!(errs("interface N<T> {\n    pure name(self) -> T\n}\nmain() {}\n"), ["Kestrel writes generic types with square brackets: `N[T]`"]);
     assert_eq!(errs("native peek[T](x: T) -> int\nmain() {}\n"), ["native functions can't have placeholders"]);
     let (p, _) = kestrel_syntax::parse_at("native peek[T](x: T) -> int\nmain() {}\n", 0, 0, 0);
     assert_eq!(p.items.len(), 1, "the native is dropped (P35)");

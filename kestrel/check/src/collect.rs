@@ -104,13 +104,17 @@ pub(crate) fn collect(program: &Program, t: &mut Tables, diags: &mut Vec<Diagnos
             Item::Interface(i) => {
                 let id = IfaceId(t.ifaces.len() as u32);
                 t.iface_by_name.entry(i.name.clone()).or_insert(id);
-                t.ifaces.push(IfaceInfo { name: i.name.clone(), item: item_idx, span: i.name_span, methods: Vec::new() });
+                let concrete = i.type_params.is_empty();
+                let (methods, params, instance) = (Vec::new(), Vec::new(), None);
+                t.ifaces.push(IfaceInfo { name: i.name.clone(), item: item_idx, span: i.name_span, methods, params, instance, concrete });
             }
             Item::Fn(_) | Item::Const(_) | Item::Use(_) => {}
         }
     }
-    declare_type_params(program, t, diags);
+    // From here instances wait for `fill_pending`: a rule's types (`[G: Handler[Pad]]`) may name
+    // an instance before any declaration's fields or methods are known.
     t.generic.collecting = true;
+    declare_type_params(program, t, diags);
     let (mut struct_id, mut enum_id, mut iface_id) = (BUILTIN_STRUCTS, 0, 0);
     for (item_idx, item) in program.items.iter().enumerate() {
         match item {
@@ -145,11 +149,12 @@ pub(crate) fn collect(program: &Program, t: &mut Tables, diags: &mut Vec<Diagnos
             Item::Use(_) => {}
         }
     }
-    // G9 compares the interfaces' method signatures, made in the loop above (P26).
-    check_rule_clashes(program, t, diags);
     // Endless declarations are marked before filling, so filling their instances ends (G10).
     check_type_expansion(t, diags);
     t.fill_pending();
+    // G9 compares the interfaces' method signatures, made in the loop above and, for instances,
+    // by `fill_pending` (P26).
+    check_rule_clashes(program, t, diags);
     crate::iface::check_conformance(program, t, diags);
     t.sync_instance_ifaces();
     mark_default_allocation(program, t);

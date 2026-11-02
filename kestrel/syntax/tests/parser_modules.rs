@@ -69,13 +69,13 @@ fn full_names_work_in_interface_lists_and_rules() {
     let src = "struct Game: rollback.Rollback, Named {\n    x: int\n}\nenum E: net.packet.Shape {\n    A\n}\npure f[G: net.packet.Shape + ordered](g: G) {}\nmain() {}\n";
     let p = ok(src);
     let Item::Struct(s) = &p.items[0] else { panic!("a struct") };
-    let names: Vec<&str> = s.ifaces.iter().map(|(n, _)| n.as_str()).collect();
+    let names: Vec<&str> = s.ifaces.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["rollback.Rollback", "Named"]);
-    let span = s.ifaces[0].1;
+    let span = s.ifaces[0].span;
     assert_eq!(&src[span.start as usize..span.end as usize], "rollback.Rollback");
     let Item::Enum(e) = &p.items[1] else { panic!("an enum") };
-    assert_eq!(e.ifaces[0].0, "net.packet.Shape");
-    let rules: Vec<&str> = fn_decl(&p, 2).type_params[0].rules.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(e.ifaces[0].name, "net.packet.Shape");
+    let rules: Vec<&str> = fn_decl(&p, 2).type_params[0].rules.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(rules, ["net.packet.Shape", "ordered"]);
 }
 

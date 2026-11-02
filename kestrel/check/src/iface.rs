@@ -1,11 +1,13 @@
-//! Interfaces: their methods as abstract functions, and the check that a struct or enum that
-//! lists an interface has everything it promises.
+//! Interfaces: their methods as abstract functions, the interfaces a type lists (an instance of a
+//! generic one with its types, decision 16), and the check that a struct or enum that lists an
+//! interface has everything it promises.
 
-use kestrel_syntax::ast::{InterfaceDecl, Item, Program};
+use kestrel_syntax::ast::{IfaceRef, InterfaceDecl, Item, Program, TypeExpr, TypeKind};
 use kestrel_syntax::{Diagnostic, Span};
 
 use crate::collect::add_fn;
-use crate::collect_ty::TypeScope;
+use crate::collect_ty::{resolve_type, TypeScope};
+use crate::generic::{GenericOwner, ParamId};
 use crate::tables::{EnumId, FnId, IfaceId, StructId, Tables, BUILTIN_STRUCTS};
 use crate::ty::Ty;
 
@@ -28,6 +30,9 @@ pub(crate) fn add_iface_members(decl: &InterfaceDecl, item_idx: usize, id: Iface
     }
     let mut methods: Vec<FnId> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
+    // A generic interface's methods use its placeholders; `Handler` alone inside it is `Handler[E]`.
+    let params = t.iface(id).params.clone();
+    let scope = TypeScope { params: &params, own: (!params.is_empty()).then_some(GenericOwner::Iface(id)) };
     for (mi, m) in decl.methods.iter().enumerate() {
         if !m.params.first().is_some_and(|p| p.is_self) {
             let msg = format!("`{}` in `{}` needs `self` or `var self` first", m.name, decl.name);
@@ -40,7 +45,7 @@ pub(crate) fn add_iface_members(decl: &InterfaceDecl, item_idx: usize, id: Iface
         }
         seen.push(&m.name);
         // The `self` parameter is typed as the interface itself.
-        let fid = add_fn(m, item_idx, Some((mi, &decl.name)), &TypeScope::NONE, t, diags);
+        let fid = add_fn(m, item_idx, Some((mi, &decl.name)), &scope, t, diags);
         t.fns[fid.0 as usize].is_abstract = true;
         methods.push(fid);
     }
@@ -56,7 +61,8 @@ pub(crate) fn check_conformance(program: &Program, t: &mut Tables, diags: &mut V
             Item::Struct(s) => {
                 let id = StructId(struct_id);
                 struct_id += 1;
-                let ifaces = resolve_list(&s.ifaces, t, diags);
+                let params = t.strukt(id).params.clone();
+                let ifaces = resolve_list(&s.name, &s.ifaces, &params, t, diags);
                 for &i in &ifaces {
                     check_type(&s.name, s.name_span, &t.strukt(id).methods.clone(), i, t, diags);
                 }
@@ -65,7 +71,8 @@ pub(crate) fn check_conformance(program: &Program, t: &mut Tables, diags: &mut V
             Item::Enum(e) => {
                 let id = EnumId(enum_id);
                 enum_id += 1;
-                let ifaces = resolve_list(&e.ifaces, t, diags);
+                let params = t.enm(id).params.clone();
+                let ifaces = resolve_list(&e.name, &e.ifaces, &params, t, diags);
                 for &i in &ifaces {
                     check_type(&e.name, e.name_span, &t.enm(id).methods.clone(), i, t, diags);
                 }
@@ -76,19 +83,41 @@ pub(crate) fn check_conformance(program: &Program, t: &mut Tables, diags: &mut V
     }
 }
 
-/// The interfaces named in a `: A, B` list, each once; what isn't one, or repeats, is reported.
-fn resolve_list(list: &[(String, Span)], t: &Tables, diags: &mut Vec<Diagnostic>) -> Vec<IfaceId> {
-    let mut ids = Vec::new();
-    for (name, span) in list {
-        let Some(&id) = t.iface_by_name.get(name) else {
-            diags.push(Diagnostic::error(*span, format!("`{name}` isn't an interface")));
-            continue;
-        };
-        if ids.contains(&id) {
-            diags.push(Diagnostic::error(*span, format!("`{name}` is listed twice")));
+/// The interface `r` names: an instance of a generic one with its types (`Handler[Click]`), made
+/// as a type is in `scope`. What isn't an interface, or has the wrong types, is reported (`None`).
+pub(crate) fn resolve_ref(r: &IfaceRef, scope: &TypeScope, t: &mut Tables, diags: &mut Vec<Diagnostic>) -> Option<IfaceId> {
+    if !t.iface_by_name.contains_key(&r.name) {
+        diags.push(Diagnostic::error(r.span, format!("`{}` isn't an interface", r.name)));
+        return None;
+    }
+    let ty = TypeExpr { kind: TypeKind::Named { name: r.name.clone(), args: r.args.clone() }, span: r.span };
+    match resolve_type(&ty, scope, t, diags) {
+        Ty::Iface(i) => Some(i),
+        _ => None,
+    }
+}
+
+/// The interfaces named in the `: A, B` list of type `name` (whose placeholders are `params`),
+/// each once. What isn't one, repeats, is a second instance of one interface, or (in a generic
+/// type) holds a placeholder, is reported (decision 16).
+fn resolve_list(name: &str, list: &[IfaceRef], params: &[ParamId], t: &mut Tables, diags: &mut Vec<Diagnostic>) -> Vec<IfaceId> {
+    let scope = TypeScope { params, own: None };
+    let mut ids: Vec<IfaceId> = Vec::new();
+    for r in list {
+        let Some(id) = resolve_ref(r, &scope, t, diags) else { continue };
+        let def = t.iface_parts(id).0;
+        let shown = t.iface(id).name.clone();
+        let msg = if ids.contains(&id) {
+            format!("`{shown}` is listed twice")
+        } else if let Some(&other) = ids.iter().find(|&&o| t.iface_parts(o).0 == def) {
+            format!("`{name}` lists `{}` and `{shown}`; a type implements one instance of an interface", t.iface(other).name)
+        } else if !t.iface(id).concrete {
+            format!("`{name}` lists `{shown}`; a generic type can list only interfaces with concrete types this round")
         } else {
             ids.push(id);
-        }
+            continue;
+        };
+        diags.push(Diagnostic::error(r.span, msg));
     }
     ids
 }

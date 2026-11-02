@@ -28,6 +28,7 @@ impl Rewriter<'_> {
             }
             Item::Interface(i) => {
                 i.name = self.qualified(&i.name).unwrap_or_else(|| i.name.clone());
+                self.type_params(&mut i.type_params);
                 i.methods.iter_mut().for_each(|m| self.func(m));
             }
             Item::Enum(e) => {
@@ -56,38 +57,29 @@ impl Rewriter<'_> {
     fn type_params(&mut self, params: &mut [TypeParam]) {
         self.placeholders = params.iter().map(|p| p.name.clone()).collect();
         for p in params {
-            for (rule, span) in &mut p.rules {
-                if matches!(rule.as_str(), "equatable" | "ordered" | "key") {
-                    continue;
-                }
-                if rule.contains('.') {
-                    if let Some(q) = self.full_type(&rule.clone(), *span) {
-                        *rule = q;
-                    }
-                    continue;
-                }
-                match self.qualified(rule) {
-                    Some(q) => *rule = q,
-                    None => self.unseen(&rule.clone(), *span, "type", false),
-                }
-            }
+            let rules = p.rules.iter_mut().filter(|r| !matches!(r.name.as_str(), "equatable" | "ordered" | "key"));
+            rules.for_each(|r| self.iface_name(r));
         }
     }
 
-    /// The interfaces in `struct S: A, B` are named like types.
-    fn iface_names(&mut self, ifaces: &mut [(String, crate::span::Span)]) {
-        for (name, span) in ifaces {
-            if name.contains('.') {
-                if let Some(q) = self.full_type(&name.clone(), *span) {
-                    *name = q;
-                }
-                continue;
+    /// The interfaces in `struct S: A, B[int]` (and a rule's) are named like types, and so are
+    /// their types.
+    fn iface_names(&mut self, ifaces: &mut [IfaceRef]) {
+        ifaces.iter_mut().for_each(|r| self.iface_name(r));
+    }
+
+    fn iface_name(&mut self, r: &mut IfaceRef) {
+        if r.name.contains('.') {
+            if let Some(q) = self.full_type(&r.name.clone(), r.span) {
+                r.name = q;
             }
-            match self.qualified(name) {
-                Some(q) => *name = q,
-                None => self.unseen(&name.clone(), *span, "type", false),
+        } else {
+            match self.qualified(&r.name) {
+                Some(q) => r.name = q,
+                None => self.unseen(&r.name.clone(), r.span, "type", false),
             }
         }
+        r.args.iter_mut().for_each(|a| self.ty(a));
     }
 
     fn func(&mut self, f: &mut FnDecl) {

@@ -40,11 +40,13 @@ pub fn resolve(a: &Analysis, offset: u32) -> Option<Symbol> {
             None => r.named(&b.name),
         },
         Hit::Type(ty) => match &ty.kind {
-            TypeKind::Named { name, .. } => r.named(name).or_else(|| Some(Symbol::new(name.clone(), None))),
+            TypeKind::Named { name, args } => {
+                r.iface_instance(name, args).or_else(|| r.named(name)).or_else(|| Some(Symbol::new(name.clone(), None)))
+            }
             _ => None,
         },
         Hit::Decl(span) => r.decl(span),
-        Hit::Iface(name, _) => r.named(name),
+        Hit::Iface(i) => r.iface_instance(&i.name, &i.args).or_else(|| r.named(&i.name)),
         Hit::Pattern { matched, arm, .. } => r.pattern(matched, arm),
         Hit::Remove { stmt, .. } => t.removes.get(&stmt).map(|&l| r.local(l)),
     }
@@ -219,9 +221,7 @@ impl Resolver<'_> {
             return Some(self.enm(e));
         }
         if let Some(&i) = t.iface_by_name.get(name) {
-            let info = t.iface(i);
-            let methods: Vec<String> = info.methods.iter().map(|&m| format!("    {}", self.func(m).code)).collect();
-            return Some(Symbol::new(format!("interface {} {{\n{}\n}}", info.name, methods.join("\n")), Some(info.span)));
+            return Some(self.iface(i));
         }
         if let Some(&f) = t.fn_by_name.get(name) {
             return Some(self.func(f));
@@ -233,6 +233,25 @@ impl Resolver<'_> {
             _ => None,
         };
         Some(Symbol::new(format!("let {}: {}", info.name, self.ty(info.ty)), def))
+    }
+
+    /// An interface as hover writes it: `interface Handler[E] { ... }` for a declaration with its
+    /// placeholders, `interface Handler[Click] { ... }` for an instance, with its types.
+    fn iface(&self, i: kestrel_check::IfaceId) -> Symbol {
+        let info = self.t.iface(i);
+        let params: Vec<&str> = info.params.iter().map(|&p| self.t.generic.param(p).name.as_str()).collect();
+        let name = if params.is_empty() { info.name.clone() } else { format!("{}[{}]", info.name, params.join(", ")) };
+        let methods: Vec<String> = info.methods.iter().map(|&m| format!("    {}", self.func(m).code)).collect();
+        Symbol::new(format!("interface {name} {{\n{}\n}}", methods.join("\n")), Some(info.span))
+    }
+
+    /// The instance `name[args]` of a generic interface, when the program made it.
+    fn iface_instance(&self, name: &str, args: &[kestrel_syntax::ast::TypeExpr]) -> Option<Symbol> {
+        let &def = self.t.iface_by_name.get(name).filter(|_| !args.is_empty())?;
+        let written: Vec<String> = args.iter().map(|a| a.to_sexpr()).collect();
+        let text = format!("{name}[{}]", written.join(", "));
+        let found = self.t.ifaces.iter().position(|i| i.instance.is_some_and(|n| n.def == def) && i.name == text)?;
+        Some(self.iface(kestrel_check::IfaceId(found as u32)))
     }
 
     /// The declaration whose name is at `span`.

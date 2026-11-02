@@ -66,6 +66,7 @@ impl Bindings {
             }
             Ty::Struct(s) => t.struct_parts(s).1.into_iter().all(|a| self.known(t, a)),
             Ty::Enum(e) | Ty::Variant(e, _) => t.enum_parts(e).1.into_iter().all(|a| self.known(t, a)),
+            Ty::Iface(i) => t.iface_parts(i).1.into_iter().all(|a| self.known(t, a)),
             _ => true,
         }
     }
@@ -144,6 +145,15 @@ impl Bindings {
             }
             (Ty::Enum(a), Ty::Enum(b) | Ty::Variant(b, _)) => {
                 let ((da, aa), (db, ab)) = (t.enum_parts(a), t.enum_parts(b));
+                if da != db || aa.is_empty() {
+                    return Ok(());
+                }
+                parts(&aa, &ab, self)
+            }
+            // An interface value for `Handler[T]`: its instance's types decide (decision 18 reads
+            // them from a struct's or enum's list).
+            (Ty::Iface(a), Ty::Iface(b)) => {
+                let ((da, aa), (db, ab)) = (t.iface_parts(a), t.iface_parts(b));
                 if da != db || aa.is_empty() {
                     return Ok(());
                 }

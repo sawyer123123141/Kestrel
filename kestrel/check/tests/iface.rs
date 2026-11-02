@@ -83,3 +83,62 @@ fn conformance_messages() {
     let (_, errs) = run("interface I { f(self) }\nstruct A: I {\n    pure f(self) { }\n}\nmain() { }\n");
     assert!(errs.is_empty(), "{errs:?}");
 }
+
+const HANDLERS: &str = "interface Handler[E] {
+    pure handle(self, e: E) -> int
+}
+
+struct A: Handler[int] {
+    pure handle(self, e: int) -> int { e }
+}
+
+struct B: Handler[string] {
+    pure handle(self, e: string) -> int { e.len }
+}
+
+struct C: Handler[int] {
+    pure handle(self, e: int) -> int { e + 1 }
+}
+
+total(hs: list[Handler[int]]) -> int { hs.len }
+
+main() { }
+";
+
+#[test]
+fn an_interface_instance_is_one_id_per_types_with_its_own_methods() {
+    let (t, errs) = run(HANDLERS);
+    assert!(errs.is_empty(), "{errs:?}");
+    let t = t.expect("tables");
+    let (a, b, c) = (t.struct_by_name["A"], t.struct_by_name["B"], t.struct_by_name["C"]);
+    let (ints, strings) = (t.strukt(a).ifaces[0], t.strukt(b).ifaces[0]);
+    // `Handler[int]` written twice (and in a type) is one interface; `Handler[string]` another.
+    assert_eq!(t.strukt(c).ifaces, vec![ints]);
+    assert_ne!(ints, strings);
+    assert_eq!(t.ty_name(Ty::Iface(ints)), "Handler[int]");
+    let def = t.iface_by_name["Handler"];
+    assert_eq!(t.iface(ints).instance.map(|i| i.def), Some(def));
+    // Each instance has its own abstract methods, with its types and `self` the instance.
+    let (mi, ms) = (t.iface(ints).methods[0], t.iface(strings).methods[0]);
+    assert_ne!(mi, ms);
+    assert_ne!(mi, t.iface(def).methods[0]);
+    assert_eq!(t.func(mi).name, "Handler[int].handle");
+    assert_eq!((t.func(mi).params[0].ty, t.func(mi).params[1].ty), (Ty::Iface(ints), Ty::Int));
+    assert_eq!(t.func(ms).params[1].ty, Ty::Str);
+    assert!(t.func(mi).is_abstract && t.func(mi).is_pure);
+    assert!(implements(&t, Ty::Struct(c), ints));
+    assert!(!implements(&t, Ty::Struct(b), ints));
+}
+
+#[test]
+fn an_instance_conforms_with_its_own_types() {
+    let src = "interface Handler[E] { pure handle(self, e: E) -> int }\nstruct A: Handler[float] {\n    pure handle(self, e: int) -> int { e }\n}\nstruct B: Handler[int] {\n    x: int\n}\nmain() { }\n";
+    let (_, errs) = run(src);
+    assert_eq!(
+        errs,
+        vec![
+            "`A.handle` doesn't match `Handler[float].handle`: it should be `pure handle(self, e: float) -> int`",
+            "`B` says it is a `Handler[int]` but has no method `handle`; add `pure handle(self, e: int) -> int`",
+        ]
+    );
+}

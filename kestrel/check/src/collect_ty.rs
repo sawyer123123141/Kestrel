@@ -94,7 +94,7 @@ fn bare_name(name: &str, scope: &TypeScope, t: &Tables) -> Result<Ty, String> {
     } else if let Some(&id) = t.enum_by_name.get(name) {
         (Ty::Enum(id), GenericOwner::Enum(id), t.enm(id).params.len())
     } else if let Some(&id) = t.iface_by_name.get(name) {
-        return Ok(Ty::Iface(id));
+        (Ty::Iface(id), GenericOwner::Iface(id), t.iface(id).params.len())
     } else {
         return Err(format!("unknown type `{name}`"));
     };
@@ -105,15 +105,16 @@ fn bare_name(name: &str, scope: &TypeScope, t: &Tables) -> Result<Ty, String> {
     Err(format!("`{name}` needs its types, like `{name}[{ints}]`"))
 }
 
-/// `Name[A, B]` for a name other than `list`, `map` and `array`: an instance of a generic struct
-/// or enum (interned, so each is one type) when the count of types matches.
+/// `Name[A, B]` for a name other than `list`, `map` and `array`: an instance of a generic struct,
+/// enum or interface (interned, so each is one type) when the count of types matches.
 fn named_with_args(name: &str, args: &[TypeExpr], scope: &TypeScope, t: &mut Tables, diags: &mut Vec<Diagnostic>) -> Result<Ty, String> {
     let (owner, count) = if let Some(&id) = t.struct_by_name.get(name) {
         (GenericOwner::Struct(id), t.strukt(id).params.len())
     } else if let Some(&id) = t.enum_by_name.get(name) {
         (GenericOwner::Enum(id), t.enm(id).params.len())
-    } else if t.iface_by_name.contains_key(name)
-        || BUILTINS.contains(&name)
+    } else if let Some(&id) = t.iface_by_name.get(name) {
+        (GenericOwner::Iface(id), t.iface(id).params.len())
+    } else if BUILTINS.contains(&name)
         || scope.params.iter().any(|&p| t.generic.param(p).name == name)
     {
         return Err(format!("`{name}` takes no types"));
@@ -142,7 +143,8 @@ fn named_with_args(name: &str, args: &[TypeExpr], scope: &TypeScope, t: &mut Tab
     Ok(match owner {
         GenericOwner::Struct(def) => Ty::Struct(t.intern_struct(def, list)),
         GenericOwner::Enum(def) => Ty::Enum(t.intern_enum(def, list)),
-        GenericOwner::Fn(_) => unreachable!("a type's name is a struct's or an enum's"),
+        GenericOwner::Iface(def) => Ty::Iface(t.intern_iface(def, list)),
+        GenericOwner::Fn(_) => unreachable!("a type's name is a struct's, an enum's or an interface's"),
     })
 }
 

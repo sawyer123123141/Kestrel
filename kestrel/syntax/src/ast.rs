@@ -97,14 +97,14 @@ pub struct EnumDecl {
     pub name_span: Span,
     /// `enum E[T, K]`: the placeholders, empty for an ordinary enum.
     pub type_params: Vec<TypeParam>,
-    /// `enum E: A, B`: the interfaces it says it implements, with where each is written.
-    pub ifaces: Vec<(String, Span)>,
+    /// `enum E: A, B[int]`: the interfaces it says it implements.
+    pub ifaces: Vec<IfaceRef>,
     pub variants: Vec<VariantDecl>,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
 
-/// `interface Name { methods }`: a list of method signatures. Each method is a `FnDecl` with
+/// `interface Name[P] { methods }`: a list of method signatures. Each method is a `FnDecl` with
 /// an empty body (spanned at the end of the signature), like a native's; its `self` is typed
 /// as the interface.
 #[derive(Clone, Debug)]
@@ -112,6 +112,8 @@ pub struct InterfaceDecl {
     pub is_pub: bool,
     pub name: String,
     pub name_span: Span,
+    /// `interface Handler[E]`: the placeholders, empty for an ordinary interface.
+    pub type_params: Vec<TypeParam>,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
@@ -131,8 +133,8 @@ pub struct StructDecl {
     pub name_span: Span,
     /// `struct S[T]`: the placeholders, empty for an ordinary struct.
     pub type_params: Vec<TypeParam>,
-    /// `struct S: A, B`: the interfaces it says it implements, with where each is written.
-    pub ifaces: Vec<(String, Span)>,
+    /// `struct S: A, B[int]`: the interfaces it says it implements.
+    pub ifaces: Vec<IfaceRef>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,
     pub span: Span,
@@ -165,12 +167,23 @@ pub struct FnDecl {
 }
 
 /// One placeholder of a generic struct, enum or function: `T`, or `T: Named + ordered` with the
-/// rules (interface names or built-in rule words) a type must meet to take its place.
+/// rules (interfaces or built-in rule words) a type must meet to take its place.
 #[derive(Clone, Debug)]
 pub struct TypeParam {
     pub name: String,
     pub span: Span,
-    pub rules: Vec<(String, Span)>,
+    pub rules: Vec<IfaceRef>,
+}
+
+/// An interface where a type lists it or a rule names it: `Named`, `rollback.Rollback`, or an
+/// instance with its types, `Handler[Click]`. A built-in rule word (`equatable`) is one with no
+/// types.
+#[derive(Clone, Debug)]
+pub struct IfaceRef {
+    pub name: String,
+    /// The name as written (the dotted name included, the types not).
+    pub span: Span,
+    pub args: Vec<TypeExpr>,
 }
 
 #[derive(Clone, Debug)]

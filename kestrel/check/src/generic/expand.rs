@@ -5,7 +5,8 @@
 //! unless `args[i]` is exactly that placeholder; a strongly connected component with a growing
 //! edge inside is endless.
 //! - The type check (`collect` phase 4) looks at the instances written in generic structs' and
-//!   enums' fields (`struct Tree[T] { kids: list[Tree[list[T]]] }`).
+//!   enums' fields (`struct Tree[T] { kids: list[Tree[list[T]]] }`) and generic interfaces'
+//!   method signatures (`interface Grow[T] { more(self) -> Grow[list[T]] }`).
 //! - The function check (the collection pass, before its walk) looks at the `type_args` of calls,
 //!   function values and method calls in generic functions and methods (`deeper[T]` calling
 //!   `deeper[list[T]]`). Constructions and variants are not edges (P24): growth through them is
@@ -23,7 +24,7 @@ use kestrel_syntax::Diagnostic;
 
 use crate::generic::graph::Graph;
 use crate::generic::{GenericOwner, ParamId};
-use crate::tables::{EnumId, FnId, Res, StructId, Tables};
+use crate::tables::{EnumId, FnId, IfaceId, Res, StructId, Tables};
 use crate::ty::Ty;
 
 /// A use `G[args]` inside `from`: an instance written in its fields, or a call in its body.
@@ -52,6 +53,18 @@ pub(crate) fn check_type_expansion(t: &mut Tables, diags: &mut Vec<Diagnostic>) 
             let from = GenericOwner::Enum(EnumId(i as u32));
             for f in e.variants.iter().flat_map(|v| &v.fields) {
                 walk(t, f.ty, from, &mut graph, &mut sites);
+            }
+        }
+    }
+    for (i, info) in t.ifaces.iter().enumerate() {
+        if info.instance.is_none() && !info.params.is_empty() {
+            let from = GenericOwner::Iface(IfaceId(i as u32));
+            for &m in &info.methods {
+                let f = t.func(m);
+                // `self` is the interface itself, with its own placeholders.
+                for ty in f.params.iter().skip(1).map(|p| p.ty).chain([f.ret]) {
+                    walk(t, ty, from, &mut graph, &mut sites);
+                }
             }
         }
     }
@@ -123,6 +136,10 @@ fn walk(t: &Tables, ty: Ty, from: GenericOwner, graph: &mut Graph, sites: &mut V
             let (def, args) = t.enum_parts(id);
             (GenericOwner::Enum(def), args)
         }
+        Ty::Iface(id) => {
+            let (def, args) = t.iface_parts(id);
+            (GenericOwner::Iface(def), args)
+        }
         Ty::Array(e) | Ty::List(e) | Ty::Optional(e) => return walk(t, t.elem(e), from, graph, sites),
         Ty::Map(k, v) => {
             walk(t, t.elem(k), from, graph, sites);
@@ -171,6 +188,7 @@ fn placeholders(t: &Tables, ty: Ty, found: &mut Vec<ParamId>) {
         }
         Ty::Struct(id) => t.struct_parts(id).1.into_iter().for_each(|a| placeholders(t, a, found)),
         Ty::Enum(id) | Ty::Variant(id, _) => t.enum_parts(id).1.into_iter().for_each(|a| placeholders(t, a, found)),
+        Ty::Iface(id) => t.iface_parts(id).1.into_iter().for_each(|a| placeholders(t, a, found)),
         Ty::Array(e) | Ty::List(e) | Ty::Optional(e) => placeholders(t, t.elem(e), found),
         Ty::Map(k, v) => {
             placeholders(t, t.elem(k), found);
@@ -193,6 +211,7 @@ fn owner_key(o: GenericOwner) -> (u8, u32) {
         GenericOwner::Struct(s) => (0, s.0),
         GenericOwner::Enum(e) => (1, e.0),
         GenericOwner::Fn(f) => (2, f.0),
+        GenericOwner::Iface(i) => (3, i.0),
     }
 }
 
@@ -215,9 +234,11 @@ fn message(
     let once = compose(t, &path, sites, own.clone());
     let twice = compose(t, &path, sites, once.clone());
     let (own, once, twice) = (written(&own), written(&once), written(&twice));
+    // An interface uses the instances in its methods' signatures; a type holds those in its fields.
+    let holds = if matches!(first, GenericOwner::Iface(_)) { "uses" } else { "holds" };
     match verb {
         Verb::Holds => (
-            format!("`{name}` would need endless copies: `{own}` holds a `{once}`, which holds a `{twice}`, and so on"),
+            format!("`{name}` would need endless copies: `{own}` {holds} a `{once}`, which {holds} a `{twice}`, and so on"),
             Some(format!("use the same placeholders (`{own}`), or types that don't grow")),
         ),
         Verb::Calls => (format!("`{name}` would need endless copies: `{own}` calls `{once}`, which calls `{twice}`, and so on"), None),
@@ -293,6 +314,10 @@ fn show(t: &Tables, ty: Ty, params: &[ParamId], env: &[String]) -> String {
         Ty::Enum(id) => {
             let (def, args) = t.enum_parts(id);
             if args.is_empty() { t.ty_name(ty) } else { format!("{}[{}]", t.enm(def).name, all(args)) }
+        }
+        Ty::Iface(id) => {
+            let (def, args) = t.iface_parts(id);
+            if args.is_empty() { t.ty_name(ty) } else { format!("{}[{}]", t.iface(def).name, all(args)) }
         }
         Ty::Array(e) => format!("[{}]", show(t, t.elem(e), params, env)),
         Ty::List(e) => format!("list[{}]", show(t, t.elem(e), params, env)),

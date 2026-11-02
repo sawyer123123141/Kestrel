@@ -44,6 +44,7 @@ pub enum GenericOwner {
     Struct(StructId),
     Enum(EnumId),
     Fn(FnId),
+    Iface(IfaceId),
 }
 
 /// One placeholder: its name, its owner and position there, and its rules.
@@ -89,6 +90,7 @@ pub struct CopyInfo {
 pub(crate) enum Pending {
     Struct(StructId),
     Enum(EnumId),
+    Iface(IfaceId),
 }
 
 /// The generic tables (`Tables::generic`).
@@ -99,6 +101,7 @@ pub struct Generics {
     pub ty_list_ids: HashMap<Vec<Ty>, TyListId>,
     pub struct_instances: HashMap<(StructId, TyListId), StructId>,
     pub enum_instances: HashMap<(EnumId, TyListId), EnumId>,
+    pub iface_instances: HashMap<(IfaceId, TyListId), IfaceId>,
     pub fn_copies: HashMap<(FnId, TyListId), FnId>,
     /// For every call, method call, type call and function value whose callee is generic: the
     /// types for the callee owner's placeholders, in the caller's terms.
@@ -147,6 +150,7 @@ impl Tables {
             GenericOwner::Struct(s) => &self.strukt(s).params,
             GenericOwner::Enum(e) => &self.enm(e).params,
             GenericOwner::Fn(f) => &self.func(f).type_params,
+            GenericOwner::Iface(i) => &self.iface(i).params,
         }
     }
 
@@ -156,6 +160,7 @@ impl Tables {
             GenericOwner::Struct(s) => &self.strukt(s).name,
             GenericOwner::Enum(e) => &self.enm(e).name,
             GenericOwner::Fn(f) => &self.func(f).name,
+            GenericOwner::Iface(i) => &self.iface(i).name,
         }
     }
 
@@ -165,6 +170,7 @@ impl Tables {
             GenericOwner::Struct(s) => self.strukt(s).span,
             GenericOwner::Enum(e) => self.enm(e).span,
             GenericOwner::Fn(f) => self.func(f).span,
+            GenericOwner::Iface(i) => self.iface(i).span,
         }
     }
 
@@ -174,6 +180,7 @@ impl Tables {
             GenericOwner::Struct(s) => self.strukt(s).item,
             GenericOwner::Enum(e) => self.enm(e).item,
             GenericOwner::Fn(f) => self.func(f).item,
+            GenericOwner::Iface(i) => self.iface(i).item,
         }
     }
 

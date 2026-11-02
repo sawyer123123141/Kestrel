@@ -173,8 +173,19 @@ impl TypeParam {
         if self.rules.is_empty() {
             return self.name.clone();
         }
-        let rules: Vec<&str> = self.rules.iter().map(|(r, _)| r.as_str()).collect();
+        let rules: Vec<String> = self.rules.iter().map(IfaceRef::to_sexpr).collect();
         format!("{}: {}", self.name, rules.join(" + "))
+    }
+}
+
+impl IfaceRef {
+    /// `Named`, or `Handler[Click]` with its types, as written.
+    pub fn to_sexpr(&self) -> String {
+        if self.args.is_empty() {
+            return self.name.clone();
+        }
+        let args: Vec<String> = self.args.iter().map(TypeExpr::to_sexpr).collect();
+        format!("{}[{}]", self.name, args.join(", "))
     }
 }
 

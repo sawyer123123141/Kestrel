@@ -24,6 +24,7 @@ impl Tables {
         let parts = match ty {
             Ty::Struct(s) => self.strukt(s).instance.map(|i| self.ty_list(i.args).to_vec()).unwrap_or_default(),
             Ty::Enum(e) | Ty::Variant(e, _) => self.enm(e).instance.map(|i| self.ty_list(i.args).to_vec()).unwrap_or_default(),
+            Ty::Iface(i) => self.iface(i).instance.map(|i| self.ty_list(i.args).to_vec()).unwrap_or_default(),
             Ty::Array(e) | Ty::List(e) | Ty::Optional(e) => vec![self.elem(e)],
             Ty::Map(k, v) => vec![self.elem(k), self.elem(v)],
             Ty::Fn(sig) => {

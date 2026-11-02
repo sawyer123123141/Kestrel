@@ -1,0 +1,51 @@
+interface Handler[E] {
+    pure handle(self, e: E) -> int
+}
+interface Holder[T] {
+    get(self) -> T
+}
+interface Named {
+    pure name(self) -> string
+}
+struct Click {
+    x: int
+}
+struct Key {
+    code: int
+}
+struct Button: Handler[Click], Handler[Key] {
+    pure handle(self, e: Click) -> int { e.x }
+}
+struct Bare: Handler {
+    pure handle(self, e: int) -> int { e }
+}
+struct Box[T]: Holder[T] {
+    v: T
+    get(self) -> T { self.v }
+}
+struct Wrong: Handler[int] {
+    pure handle(self, e: string) -> int { 0 }
+}
+struct Extra: Named[int] {
+    pure name(self) -> string { "x" }
+}
+struct Twice: Handler[int], Handler[int] {
+    pure handle(self, e: int) -> int { e }
+}
+interface Grow[T] {
+    more(self) -> Grow[list[T]]
+}
+use_bare(h: Handler) -> int { 0 }
+pick[G: Handler[int] + Handler[string]](g: G) -> int { 0 }
+count(hs: list[Handler[int, int]]) -> int { hs.len }
+main() {}
+// error 16: `Button` lists `Handler[Click]` and `Handler[Key]`; a type implements one instance of an interface
+// error 19: `Handler` needs its types, like `Handler[int]`
+// error 22: `Box` lists `Holder[T]`; a generic type can list only interfaces with concrete types this round
+// error 27: `Wrong.handle` doesn't match `Handler[int].handle`: it should be `pure handle(self, e: int) -> int`
+// error 29: `Named` takes no types
+// error 32: `Handler[int]` is listed twice
+// error 35: `Grow` would need endless copies: `Grow[T]` uses a `Grow[list[T]]`, which uses a `Grow[list[list[T]]]`, and so on
+// error 38: `Handler` needs its types, like `Handler[int]`
+// error 39: `G` can't have both `Handler[int]` and `Handler[string]`; keep one
+// error 40: `Handler` takes 1 type, found 2

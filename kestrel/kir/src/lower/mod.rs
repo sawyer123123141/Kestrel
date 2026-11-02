@@ -126,6 +126,11 @@ pub fn lower(program: &Program, t: &Tables, lines: &LineIndex) -> Module {
 /// substitution).
 fn lower_fn(program: &Program, t: &Tables, lines: &LineIndex, f: FnId, helpers: &mut Helpers) -> Func {
     let info = t.func(f);
+    // A generic interface's methods, and an instance's whose types hold a placeholder, have no
+    // runtime types: like a generic original, they stand only for their concrete instances'.
+    if info.is_abstract && (info.generic.is_some() || !info.params.iter().map(|p| p.ty).chain([info.ret]).all(|ty| t.is_concrete(ty))) {
+        return stubs::generic_stub(info);
+    }
     if info.is_abstract {
         return stubs::abstract_stub(info);
     }

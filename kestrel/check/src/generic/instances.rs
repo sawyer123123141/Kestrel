@@ -14,7 +14,7 @@ use crate::ty::Ty;
 
 impl Tables {
     /// Whether `args` are `params` themselves, in order: the declaration with its own placeholders.
-    fn own_args(&self, params: &[crate::generic::ParamId], args: TyListId) -> bool {
+    pub(crate) fn own_args(&self, params: &[crate::generic::ParamId], args: TyListId) -> bool {
         self.ty_list(args).iter().copied().eq(params.iter().map(|&p| Ty::Param(p)))
     }
 
@@ -149,6 +149,7 @@ impl Tables {
             match p {
                 Pending::Struct(id) => self.fill_struct(id),
                 Pending::Enum(id) => self.fill_enum(id),
+                Pending::Iface(id) => self.fill_iface(id),
             }
         }
         self.generic.collecting = false;
