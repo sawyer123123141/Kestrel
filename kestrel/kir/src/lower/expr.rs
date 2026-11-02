@@ -105,6 +105,10 @@ impl<'a> FnLowerer<'a> {
                 let (l, r) = (self.expr(lhs), self.expr(rhs));
                 self.vec_equal(*op == ast::BinaryOp::Ne, l, r, line)
             }
+            // Two values of one struct or enum, field by field (decision 19).
+            ast::ExprKind::Binary { op: op @ (ast::BinaryOp::Eq | ast::BinaryOp::Ne), lhs, rhs } if self.is_record(lhs) => {
+                self.record_equal(*op == ast::BinaryOp::Ne, lhs, rhs, line)
+            }
             // Two strings or two bools ordered (G5, P5).
             ast::ExprKind::Binary { op: op @ (ast::BinaryOp::Lt | ast::BinaryOp::Le | ast::BinaryOp::Gt | ast::BinaryOp::Ge), lhs, rhs }
                 if matches!(self.ty(lhs.id), Ty::Str | Ty::Bool) =>

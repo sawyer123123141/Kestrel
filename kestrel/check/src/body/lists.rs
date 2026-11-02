@@ -225,10 +225,10 @@ impl<'a> BodyChecker<'a> {
             return Ty::Error;
         }
         // (A placeholder that gets here has the rule.)
-        let comparable = elem.is_numeric() || matches!(elem, Ty::Bool | Ty::Str | Ty::Error | Ty::Param(_)) || self.t.vector(elem).is_some();
+        let comparable = matches!(elem, Ty::Param(_)) || self.t.equatable(elem);
         if matches!(method, ListMethod::Has | ListMethod::Find) && !comparable {
             let msg = format!(
-                "`{name}` needs items that `==` can compare (numbers, bools, strings and vectors); `{}` holds `{}`",
+                "`{name}` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `{}` holds `{}`",
                 self.tn(recv_ty),
                 self.tn(elem)
             );

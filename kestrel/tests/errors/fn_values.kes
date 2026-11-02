@@ -7,7 +7,7 @@
 // error 59: methods can't be used as values yet; wrap it: `(e) { e.len2() }`
 // error 60: function values can't be compared
 // error 62: function values can't be compared
-// error 64: `has` needs items that `==` can compare (numbers, bools, strings and vectors); `list[(int) -> int]` holds `(int) -> int`
+// error 64: `has` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[(int) -> int]` holds `(int) -> int`
 // error 66: expected pure (int) -> int, found (int) -> int
 // error 67: expected (int) -> int, found (float) -> int
 // error 74: `f` was removed earlier, so it can't be used here

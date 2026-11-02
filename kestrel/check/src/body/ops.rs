@@ -93,7 +93,9 @@ impl<'a> BodyChecker<'a> {
             }
             _ if op.is_comparison() => {
                 let lt = self.check_expr(lhs, None);
-                let rt = self.check_expr(rhs, Some(lt).filter(|t| t.is_numeric()));
+                // (A struct or enum on the left tells the right its type: `r == Result.Ok(value: 3)`.)
+                let record = matches!(lt, Ty::Struct(_) | Ty::Enum(_)) && self.t.vector(lt).is_none();
+                let rt = self.check_expr(rhs, Some(lt).filter(|t| t.is_numeric() || record));
                 // A `T` compares only with the rule for it, and only with another `T`.
                 if let Some(ty) = self.param_comparison(e, op, lt, rt) {
                     return ty;
@@ -119,6 +121,15 @@ impl<'a> BodyChecker<'a> {
                         None => "interface values can't be compared; compare what a method returns".to_string(),
                     };
                     self.error(e.span, msg);
+                    return Ty::Bool;
+                }
+                // Two values of one struct or enum compare field by field when every field can
+                // (decision 19); the refusal names the first that can't.
+                if matches!(op, BinaryOp::Eq | BinaryOp::Ne) && lt == rt && matches!(lt, Ty::Struct(_) | Ty::Enum(_)) {
+                    if let Some(why) = self.t.equatable_refusal(lt) {
+                        let msg = format!("`{}` can't compare `{}`s: {why}; compare the fields you mean", op.symbol(), self.tn(lt));
+                        self.error(e.span, msg);
+                    }
                     return Ty::Bool;
                 }
                 if matches!(op, BinaryOp::Eq | BinaryOp::Ne) && [lt, rt].iter().any(|t| matches!(t, Ty::Bool | Ty::Str)) {

@@ -398,3 +398,16 @@ fn save_and_restore_of_plain_state_prove_no_alloc() {
         assert_eq!((stdout(&out).as_str(), stderr(&out).as_str()), ("", ""), "{args:?}");
     }
 }
+
+#[test]
+fn comparing_plain_structs_proves_no_alloc_and_no_panic() {
+    // Decision 19: `==` on a struct of scalars compares inline; on one holding a string and an
+    // enum it calls a generated function. Neither allocates or fails.
+    let src = "struct Pad {\n    up: bool\n    down: bool\n}\n\nenum Shape {\n    Dot\n    Circle { r: float }\n}\n\nstruct Named {\n    name: string\n    shape: Shape\n}\n\n@prove(no_alloc, no_panic)\npub same_pad(a: Pad, b: Pad) -> bool { a == b }\n\n@prove(no_alloc, no_panic)\npub differ(a: Named, b: Named) -> bool { a != b }\n\nmain() {}\n";
+    let dir = project("equatable", &[("equatable.kes", src)]);
+    for args in [&["check"][..], &["check", "--release"]] {
+        let out = kestrel(args, &dir.join("equatable.kes"));
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out), "", "{args:?}");
+    }
+}

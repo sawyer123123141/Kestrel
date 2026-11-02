@@ -179,7 +179,7 @@ fn function_values_are_not_map_keys_or_search_items() {
     let has = "f(x: int) {}\nmain() {\n    let xs = list[(int)]()\n    print(xs.find(f))\n}\n";
     assert_eq!(
         errors(has),
-        vec!["`find` needs items that `==` can compare (numbers, bools, strings and vectors); `list[(int)]` holds `(int)`"]
+        vec!["`find` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[(int)]` holds `(int)`"]
     );
 }
 

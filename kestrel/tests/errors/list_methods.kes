@@ -1,6 +1,6 @@
 // error 17: can't call `remove_at` on `fixed`: it changes `fixed`, which was declared with `let`
 // error 19: arrays have a fixed length; use a `list[int]` if items come and go
-// error 21: `has` needs items that `==` can compare (numbers, bools, strings and vectors); `list[Wrap]` holds `Wrap`
+// error 21: `has` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[Wrap]` holds `Wrap`
 // error 23: this only reads the list, so the line does nothing
 // error 25: can't change how many items `xs` has while looping over it; use `remove x` to remove the loop's item, or change `xs` after the loop
 // error 29: can't change how many items `w.items` has while looping over it; use `remove x` to remove the loop's item, or change `w.items` after the loop

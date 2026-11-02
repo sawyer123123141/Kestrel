@@ -136,7 +136,7 @@ fn list_method_errors() {
         ("main() {\n let l: list[int] = []\n l.remove_at(0)\n}\n", "can't call `remove_at` on `l`: it changes `l`, which was declared with `let`"),
         ("main() {\n var a = [1]\n a.pop()\n}\n", "arrays have a fixed length; use a `list[int]` if items come and go"),
         ("main() {\n var a = [1]\n a.clear()\n}\n", "arrays have a fixed length; use a `list[int]` if items come and go"),
-        ("struct S {\n a: int\n}\nmain() {\n let l: list[S] = []\n let b = l.find(S(a: 1))\n}\n", "`find` needs items that `==` can compare (numbers, bools, strings and vectors); `list[S]` holds `S`"),
+        ("interface N {\n n(self) -> int\n}\nstruct S {\n a: N\n}\nf(l: list[S], s: S) {\n let b = l.find(s)\n}\nmain() {}\n", "`find` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[S]` holds `S`"),
         ("main() {\n var l: list[int] = []\n l.find(1)\n}\n", "this only reads the list, so the line does nothing"),
         ("main() {\n var l: list[int] = []\n l.has(1)\n}\n", "this only reads the list, so the line does nothing"),
         ("main() {\n var l: list[int] = []\n l.insert(1.5, 2)\n}\n", "an index must be an integer, found float"),

@@ -1,0 +1,79 @@
+// `==` and `!=` on plain structs and enums (decision 19): fields in declaration order, an enum's
+// tag first, floats as `==` compares them (a NaN field is unequal, `-0.0 == 0.0`).
+// expect: true true false
+// expect: true
+// expect: false true
+// expect: true false true
+// expect: false true true
+// expect: true false
+// expect: 1 1 false
+// expect: 2 1 1
+// expect: true false
+// expect: true false
+
+struct Pad {
+    up: bool = false
+    down: bool = false
+}
+
+// Numbers, bools and vectors only, nested: compared inline.
+struct Body {
+    at: vec2
+    pad: Pad
+    hp: int
+}
+
+// A string and a nested enum: compared by a generated function.
+struct Player {
+    name: string
+    body: Body
+    shape: Shape
+}
+
+enum Shape {
+    Dot
+    Circle { r: float }
+    Box { w: float, h: float }
+}
+
+struct Pair[A, B] {
+    a: A
+    b: B
+}
+
+pure count[T: equatable](xs: list[T], x: T) -> int {
+    var n = 0
+    for y in xs {
+        if y == x {
+            n += 1
+        }
+    }
+    n
+}
+
+pure differ[T: equatable](a: T, b: T) -> bool { a != b }
+
+main() {
+    print(Pad(up: true) == Pad(up: true), Pad(up: true) != Pad(down: true), Pad() == Pad(down: true))
+    let body = Body(at: vec2(1, 2), pad: Pad(up: true), hp: 3)
+    print(body == Body(at: vec2(1, 2), pad: Pad(up: true), hp: 3))
+    let a = Player(name: "ann", body: body, shape: Shape.Dot)
+    var b = a
+    b.name = "bob"
+    print(a == b, a != b)
+    print(Shape.Circle(r: 1.0) == Shape.Circle(r: 1.0), Shape.Circle(r: 1.0) == Shape.Box(w: 1.0, h: 1.0), Shape.Dot == Shape.Dot)
+    let z = 0.0
+    let nan = z / z
+    print(Shape.Circle(r: nan) == Shape.Circle(r: nan), Pair(a: 0.0, b: 1) == Pair(a: -0.0, b: 1), Pair(a: nan, b: 1) != Pair(a: nan, b: 1))
+    print(Pair(a: "x", b: Shape.Box(w: 1.0, h: 2.0)) == Pair(a: "x", b: Shape.Box(w: 1.0, h: 2.0)), differ(a, a))
+    let shapes: list[Shape] = [Shape.Dot, Shape.Circle(r: 2.0), Shape.Box(w: 1.0, h: 2.0)]
+    let pads: list[Pad] = [Pad(), Pad(up: true), Pad(up: true)]
+    print(shapes.find(Shape.Circle(r: 2.0)), pads.find(Pad(up: true)), pads.has(Pad(down: true)))
+    var players: list[Player] = [a, b]
+    players.add(a)
+    print(count(pads, Pad(up: true)), count(players, b), count(shapes, Shape.Dot))
+    print(shapes.has(Shape.Box(w: 1.0, h: 2.0)), shapes.has(Shape.Box(w: 2.0, h: 1.0)))
+    let r: Result[int, string] = Result.Ok(value: 3)
+    let e: Result[int, string] = Result.Err(error: "no")
+    print(r == Result.Ok(value: 3), r == e)
+}

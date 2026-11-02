@@ -14,6 +14,7 @@ mod consts;
 mod copies;
 mod difference;
 mod env;
+mod eq;
 mod expr;
 mod fnvalue;
 mod heap;

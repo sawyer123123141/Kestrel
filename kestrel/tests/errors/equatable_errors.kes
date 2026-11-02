@@ -1,0 +1,44 @@
+// error 34: `==` can't compare `World`s: its field `chunks` is a list; compare the fields you mean
+// error 35: `!=` can't compare `Outer`s: its field `world` is a `World`, whose field `chunks` is a list; compare the fields you mean
+// error 36: `==` can't compare `Bag`s: its variant `Full`'s field `items` is an array; compare the fields you mean
+// error 37: `==` can't compare `Pool`s: its field `mem` is an `Arena`; compare the fields you mean
+// error 38: `World` isn't `equatable` (numbers, bools, strings, vectors, and structs and enums of them are), so it can't be `T` in `count`
+// error 39: `Pair[int, list[int]]` isn't `equatable` (numbers, bools, strings, vectors, and structs and enums of them are), so it can't be `T` in `count`
+// error 40: `has` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[World]` holds `World`
+struct World {
+    seed: int
+    chunks: list[int]
+}
+
+struct Outer {
+    world: World
+}
+
+enum Bag {
+    Empty
+    Full { items: [int] }
+}
+
+struct Pool {
+    mem: Arena
+}
+
+struct Pair[A, B] {
+    a: A
+    b: B
+}
+
+count[T: equatable](xs: list[T], x: T) -> int { 0 }
+
+check(w: World, o: Outer, g: Bag, p: Pool, ws: list[World], ps: list[Pair[int, list[int]]], q: Pair[int, list[int]]) {
+    let a = w == w
+    let b = o != o
+    let c = g == g
+    let d = p == p
+    let e = count(ws, w)
+    let f = count(ps, q)
+    let h = ws.has(w)
+    print(a, b, c, d, e, f, h)
+}
+
+main() {}

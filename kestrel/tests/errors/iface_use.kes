@@ -6,7 +6,7 @@
 // error 85: expected list[Damageable], found list[Goblin]
 // error 89: interface values can't be compared; compare what a method returns
 // error 90: interface values can't be compared; compare what a method returns
-// error 94: `has` needs items that `==` can compare (numbers, bools, strings and vectors); `list[Damageable]` holds `Damageable`
+// error 94: `has` needs items that `==` can compare (numbers, bools, strings, vectors, and structs and enums of them); `list[Damageable]` holds `Damageable`
 // error 98: give the list a type: `var foes: list[Damageable] = [...]`
 // error 102: `array[Damageable](n)` would start with empty items; build it with a literal or `add`
 // error 106: pure functions can only call pure functions; `Damageable.log` isn't pure

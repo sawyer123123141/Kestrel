@@ -79,6 +79,8 @@ pub(crate) struct Helpers {
     pub(crate) print: HashMap<KTy, FuncIdx>,
     /// The search behind `has` and `find`, per list or array type.
     pub(super) find: HashMap<KTy, FuncIdx>,
+    /// The `==` of each struct or enum that doesn't compare inline (see `eq`).
+    pub(super) eq: HashMap<KTy, FuncIdx>,
     /// The loop behind each `filter`, `map`, `any` and `all` (see `list_fn`).
     pub(super) list_fns: HashMap<(ListMethod, KTy, Callee), FuncIdx>,
     /// The compare function behind each `sort` (no callee) and string-key `sort_by`, or the key
@@ -131,6 +133,7 @@ impl Helpers {
             drop,
             print,
             find,
+            eq: HashMap::new(),
             list_fns,
             sort_less,
             sort_calls,

@@ -291,14 +291,14 @@ fn one_error_per_call() {
 #[test]
 fn worked_out_types_meet_their_rules() {
     let src = format!(
-        "{DECLS}interface Named {{\n    label(self) -> string\n}}\nstruct Enemy: Named {{\n    hp: int\n    label(self) -> string {{ \"e\" }}\n}}\npure same[T: equatable](a: T, b: T) -> bool {{ a == b }}\nswap[T: equatable](var a: T, var b: T) {{\n    let c = a\n    a = b\n    b = c\n}}\nmain() {{\n    let e = Enemy(hp: 1)\n    let s = same(e, e)\n    let o: int? = none\n    let q = pick(o, o)\n    var n: Named = Enemy(hp: 2)\n    var k: Named = Enemy(hp: 3)\n    swap(var n, var k)\n    let w = pick(n, k)\n}}\n"
+        "{DECLS}interface Named {{\n    label(self) -> string\n}}\nstruct Enemy: Named {{\n    hp: int\n    tags: list[int] = []\n    label(self) -> string {{ \"e\" }}\n}}\npure same[T: equatable](a: T, b: T) -> bool {{ a == b }}\nswap[T: equatable](var a: T, var b: T) {{\n    let c = a\n    a = b\n    b = c\n}}\nmain() {{\n    let e = Enemy(hp: 1)\n    let s = same(e, e)\n    let o: int? = none\n    let q = pick(o, o)\n    var n: Named = Enemy(hp: 2)\n    var k: Named = Enemy(hp: 3)\n    swap(var n, var k)\n    let w = pick(n, k)\n}}\n"
     );
     assert_eq!(
         errors(&src),
         [
-            "`Enemy` isn't `equatable` (numbers, bools, strings and vectors are), so it can't be `T` in `same`",
+            "`Enemy` isn't `equatable` (numbers, bools, strings, vectors, and structs and enums of them are), so it can't be `T` in `same`",
             "`int?` is an optional, so it can't be `T` yet; hold it in a struct field instead",
-            "`Named` isn't `equatable` (numbers, bools, strings and vectors are), so it can't be `T` in `swap`",
+            "`Named` isn't `equatable` (numbers, bools, strings, vectors, and structs and enums of them are), so it can't be `T` in `swap`",
         ]
     );
 }

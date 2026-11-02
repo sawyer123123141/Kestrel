@@ -93,7 +93,7 @@ fn struct_errors() {
         (format!("{p}main() {{\n let a = P\n}}\n"), "`P` is a struct; build one with `P(...)`"),
         ("struct P {\n x: int\n x(self) {}\n}\nmain() {}\n".into(), "`P` already has a field named `x`"),
         (format!("{p}main() {{\n P(1)\n}}\n"), "this line has no effect; did you mean to continue the line above?"),
-        (format!("{p}main() {{\n let a = P(1)\n let b = a == a\n}}\n"), "`==` needs numbers, found P and P"),
+        ("struct P {\n x: int\n xs: list[int]\n}\nmain() {\n let a = P(x: 1, xs: [])\n let b = a == a\n}\n".into(), "`==` can't compare `P`s: its field `xs` is a list; compare the fields you mean"),
     ];
     for (src, expected) in cases {
         let (_, errs) = run(&src);

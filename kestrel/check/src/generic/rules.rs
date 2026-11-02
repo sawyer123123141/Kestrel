@@ -13,7 +13,7 @@ use kestrel_syntax::{Diagnostic, Span};
 use crate::collect_ty::TypeScope;
 use crate::generic::{GenericOwner, ParamId};
 use crate::iface::implements;
-use crate::tables::{IfaceId, Tables, IVEC2, IVEC3, VEC2, VEC3};
+use crate::tables::{IfaceId, Tables};
 use crate::ty::Ty;
 
 /// A written type argument waiting for phase 7: `arg` for `param` of `generic`, written at `at`
@@ -63,7 +63,7 @@ impl Tables {
         let missing = self.rules_of(param).into_iter().find(|&r| !self.meets(arg, r))?;
         let what = match missing {
             Rule::Iface(i) => format!("`{}`", self.iface(i).name),
-            Rule::Equatable => "`equatable` (numbers, bools, strings and vectors are)".to_string(),
+            Rule::Equatable => "`equatable` (numbers, bools, strings, vectors, and structs and enums of them are)".to_string(),
             Rule::Ordered => "`ordered` (numbers, bools and strings are)".to_string(),
             Rule::Key => "a `key` (integers, bools and strings are)".to_string(),
         };
@@ -171,12 +171,81 @@ impl Tables {
                     Rule::Iface(_) => unreachable!("matched above"),
                 }
             }
-            (_, Rule::Equatable) => {
-                matches!(arg, Ty::Int | Ty::I64 | Ty::U8 | Ty::Float | Ty::F64 | Ty::Bool | Ty::Str | Ty::Vec4 | Ty::IVec4)
-                    || matches!(arg, Ty::Struct(s) if [VEC2, VEC3, IVEC2, IVEC3].contains(&s))
-            }
+            (_, Rule::Equatable) => self.equatable(arg),
             (_, Rule::Ordered) => matches!(arg, Ty::Int | Ty::I64 | Ty::U8 | Ty::Float | Ty::F64 | Ty::Bool | Ty::Str),
             (_, Rule::Key) => matches!(arg, Ty::Int | Ty::I64 | Ty::U8 | Ty::Bool | Ty::Str),
         }
+    }
+}
+
+impl Tables {
+    /// Whether `==` compares values of `ty` (decision 19): numbers, bools, strings and vectors; a
+    /// struct whose fields are and an enum whose variants' fields are (a bare variant always is),
+    /// judged with an instance's own types; a placeholder with the rule. Lists, arrays, maps,
+    /// optionals, interface and function values, arenas and GPU objects aren't.
+    pub(crate) fn equatable(&self, ty: Ty) -> bool {
+        self.not_equatable(ty, &mut Vec::new()).is_none()
+    }
+
+    /// Why `==` can't compare two values of struct or enum `ty`, as the refusal says it: "its
+    /// field `chunks` is a list". `None` when it can, or `ty` is neither.
+    pub(crate) fn equatable_refusal(&self, ty: Ty) -> Option<String> {
+        if !matches!(ty, Ty::Struct(_) | Ty::Enum(_)) {
+            return None;
+        }
+        self.part_not_equatable(ty, &mut vec![ty]).map(|why| format!("its {why}"))
+    }
+
+    /// Why a value of `ty` can't be compared, as "is a list" or "is a `World`, whose field
+    /// `chunks` is a list"; `None` when it can. `seen` stops a walk through a type that contains
+    /// itself (only possible through a collection, which already isn't equatable, or an error
+    /// reported elsewhere).
+    fn not_equatable(&self, ty: Ty, seen: &mut Vec<Ty>) -> Option<String> {
+        let what = match ty {
+            _ if ty.is_numeric() => return None,
+            Ty::Bool | Ty::Str | Ty::Vec4 | Ty::IVec4 | Ty::Error => return None,
+            Ty::Param(p) if self.generic.param(p).equatable => return None,
+            Ty::Struct(_) | Ty::Enum(_) if seen.contains(&ty) => return None,
+            Ty::Struct(_) | Ty::Enum(_) => {
+                seen.push(ty);
+                let why = self.part_not_equatable(ty, seen)?;
+                return Some(format!("is a `{}`, whose {why}", self.ty_name(ty)));
+            }
+            Ty::List(_) => "a list",
+            Ty::Array(_) => "an array",
+            Ty::Map(..) => "a map",
+            Ty::Optional(_) => "an optional",
+            Ty::Iface(_) => "an interface value",
+            Ty::Fn(_) => "a function value",
+            Ty::Arena => "an `Arena`",
+            Ty::Gpu => "a GPU object",
+            _ => return Some(format!("is a `{}`", self.ty_name(ty))),
+        };
+        Some(format!("is {what}"))
+    }
+
+    /// The first field of struct or enum `ty`, in declaration order, that `==` can't compare:
+    /// "field `chunks` is a list", or "variant `Full`'s field `items` is an array".
+    fn part_not_equatable(&self, ty: Ty, seen: &mut Vec<Ty>) -> Option<String> {
+        match ty {
+            Ty::Struct(s) => {
+                for f in &self.strukt(s).fields {
+                    if let Some(why) = self.not_equatable(f.ty, seen) {
+                        return Some(format!("field `{}` {why}", f.name));
+                    }
+                }
+            }
+            Ty::Enum(e) => {
+                for v in &self.enm(e).variants {
+                    for f in &v.fields {
+                        if let Some(why) = self.not_equatable(f.ty, seen) {
+                            return Some(format!("variant `{}`'s field `{}` {why}", v.name, f.name));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
     }
 }
