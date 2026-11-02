@@ -69,10 +69,9 @@ impl Hasher<'_> {
             }
             Stmt::SetLine(_) => self.tag("set line", &[]),
             Stmt::Trap => self.tag("trap", &[]),
-            Stmt::Fail(msg) => {
-                self.tag("fail", &[]);
-                self.str(msg);
-            }
+            // (The message and the code are expressions the walk visits.)
+            Stmt::Fail { .. } => self.tag("fail", &[]),
+            Stmt::Exit { .. } => self.tag("exit", &[]),
             // An assumption and a contract by what they say, not by their ids.
             Stmt::Assume { conds, check, body } => {
                 self.tag("assume", &[len(conds), len(body)]);

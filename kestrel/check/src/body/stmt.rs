@@ -36,6 +36,11 @@ impl<'a> BodyChecker<'a> {
                 Ty::Unit
             }
             Stmt::Let { is_var, bind, ty, value, .. } => {
+                // `let n = fail("x")`: says the call never returns.
+                if let Some(local_ty) = self.check_stop_value(value, &bind.name) {
+                    self.declare(bind, local_ty, *is_var, false, false);
+                    return Ty::Unit;
+                }
                 let ann = ty.as_ref().map(|t| self.resolve(t));
                 let mut local_ty = self.going_into(value, Site::Variable, |c| c.check_value(value, ann));
                 if matches!(local_ty, Ty::Unit | Ty::Never) {

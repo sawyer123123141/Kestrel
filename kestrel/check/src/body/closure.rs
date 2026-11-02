@@ -74,6 +74,7 @@ struct Saved {
 pub(crate) enum Impure<'a> {
     Print,
     Random,
+    Exit,
     /// A call of the function with this name, which isn't `pure`.
     Call(&'a str),
     /// A call of a function value whose type isn't `pure`, as a message names it.
@@ -86,6 +87,7 @@ impl Impure<'_> {
         match self {
             Impure::Print => "calls `print`".to_string(),
             Impure::Random => "uses random numbers".to_string(),
+            Impure::Exit => "calls `exit`".to_string(),
             Impure::Call(name) => format!("calls `{name}`, which isn't pure"),
             Impure::Value(shown) => format!("calls {shown}, which isn't a pure function type"),
         }
@@ -96,6 +98,7 @@ impl Impure<'_> {
         match self {
             Impure::Print => format!("this closure calls `print`, which a {ctx} can't do"),
             Impure::Random => format!("this closure uses random numbers, which a {ctx} can't do"),
+            Impure::Exit => format!("this closure calls `exit`, which a {ctx} can't do"),
             Impure::Call(name) => format!("this closure calls `{name}`, which isn't `pure`; a {ctx} can only call `pure` functions"),
             Impure::Value(shown) => format!("this closure calls {shown}, which isn't a pure function type; a {ctx} can only call `pure` functions"),
         }

@@ -34,7 +34,8 @@ pub(crate) fn check_field_defaults(program: &Program, t: &mut Tables, diags: &mu
             let mut bc = BodyChecker::new(t, diags, None, Ty::Unit, false);
             bc.set_scope(own);
             if !is_const_expr(default, bc.t) {
-                bc.error(default.span, DEFAULT_EXPR);
+                let (span, msg) = super::stop_in_constant(default).unwrap_or((default.span, DEFAULT_EXPR.to_string()));
+                bc.error(span, msg);
             } else if bc.check_value(default, Some(ty)) == Ty::Error {
                 continue;
             } else if let Some(span) = struct_field_read(default, bc.t) {

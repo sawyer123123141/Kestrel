@@ -8,6 +8,9 @@ use crate::range::show::{expr_text, place_text, type_name};
 use crate::range::MAX_ITEMS;
 use crate::ir::*;
 
+/// Why a `fail(...)` breaks `no_panic`, as the contract, a chain and the report say it.
+const FAIL_STOPS: &str = "`fail` stops the program";
+
 /// The limit on a list's or array's length, as the report writes it.
 pub(super) fn limit() -> String {
     crate::range::show::number(MAX_ITEMS)
@@ -101,10 +104,23 @@ impl Walk<'_> {
             Stmt::Trap => {
                 self.fail(0, Some("calling an interface method with no body stops the program".to_string()), "calls an interface method with no body".to_string(), "");
             }
-            Stmt::Fail(msg) => {
-                self.fail(0, Some(format!("stops the program with the error \"{msg}\"")), "stops the program with an error".to_string(), "");
-            }
             _ => {}
+        }
+    }
+
+    /// `fail(message)` at `line`, or the fixed failure of a method table's copy function (line 0).
+    /// The message's own allocations happen only on the way out of the program, so they aren't
+    /// events (`no_alloc` holds through them); a failure or a call inside it still is.
+    pub(super) fn fail_stmt(&mut self, message: &Expr, line: u32) {
+        let mark = self.out.len();
+        self.expr(message);
+        let inside = self.out.split_off(mark);
+        self.out.extend(inside.into_iter().filter(|e| !matches!(e.what, What::Alloc(_))));
+        if line != 0 {
+            self.fail(line, Some(FAIL_STOPS.to_string()), "can fail".to_string(), &format!(": {FAIL_STOPS}"));
+        } else {
+            let ExprKind::StrLit(msg) = &message.kind else { unreachable!("a method table's copy fails with a fixed message") };
+            self.fail(0, Some(format!("stops the program with the error \"{msg}\"")), "stops the program with an error".to_string(), "");
         }
     }
 

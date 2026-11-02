@@ -1,0 +1,6 @@
+main() {
+    exit(300)
+}
+
+// expect-exit: 101
+// expect-stderr: `exit` takes a code from 0 to 255, found 300 on line 2

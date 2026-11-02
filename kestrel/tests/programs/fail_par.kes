@@ -1,0 +1,22 @@
+pure check(i: int) -> int {
+    if i % 3 == 0 {
+        fail("{i} is a multiple of three")
+    }
+    i
+}
+
+main() {
+    var xs = list[int]()
+    for i from 1 to 8 {
+        xs.add(i)
+    }
+    par for x in xs {
+        x = check(x)
+    }
+    print("never printed")
+}
+
+// A `par for` reports the failure at the lowest index, whatever the thread count.
+// env: KESTREL_THREADS=8
+// expect-exit: 101
+// expect-stderr: 3 is a multiple of three on line 3

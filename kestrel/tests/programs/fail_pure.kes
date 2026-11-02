@@ -1,0 +1,17 @@
+pure half(n: int) -> int {
+    if n % 2 != 0 {
+        fail("half takes an even number, found {n}")
+    }
+    n / 2
+}
+
+main() {
+    print(half(4))
+    print(half(3))
+    print("never printed")
+}
+
+// `fail` stops a `pure` function, with the sentence and the line of the `fail` call.
+// expect: 2
+// expect-exit: 101
+// expect-stderr: half takes an even number, found 3 on line 3

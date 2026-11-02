@@ -279,6 +279,16 @@ pub fn on_failure(msg: &str) -> Option<i32> {
     }
 }
 
+/// The runtime's `exit` path, after printed output is flushed and before the process ends with
+/// `code`: the exit code to end with instead, or `None` to end with `code`.
+///
+/// For now it does nothing: recording the code (entry kind 3) and comparing it in a replay come
+/// with the replay format's version 2.
+pub fn on_exit(code: i32) -> Option<i32> {
+    let _ = code;
+    None
+}
+
 #[cfg(test)]
 #[path = "../replay_test.rs"]
 mod tests;

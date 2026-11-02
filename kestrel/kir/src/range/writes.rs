@@ -109,7 +109,7 @@ pub fn of_operands(s: &Stmt) -> Vec<Write> {
 pub fn operands(s: &Stmt) -> Vec<&Expr> {
     let mut out = Vec::new();
     match s {
-        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) => out.push(e),
+        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) | Stmt::Fail { message: e, .. } | Stmt::Exit { code: e, .. } => out.push(e),
         Stmt::Assign(p, e) | Stmt::ListAdd(p, e) | Stmt::SetLen(p, e) => {
             out.push(e);
             index_exprs(p, &mut out);
@@ -160,8 +160,7 @@ pub fn operands(s: &Stmt) -> Vec<&Expr> {
         | Stmt::PushArena(None, _)
         | Stmt::PopArena { .. }
         | Stmt::SetLine(_)
-        | Stmt::Trap
-        | Stmt::Fail(_) => {}
+        | Stmt::Trap => {}
     }
     out
 }

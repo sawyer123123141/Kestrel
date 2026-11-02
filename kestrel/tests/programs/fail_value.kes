@@ -1,0 +1,40 @@
+// `fail` never returns, so it ends a block wherever a value or a `return` could.
+first(xs: list[int]) -> int {
+    let n = if xs.len > 0 { xs[0] } else { fail("the list is empty") }
+    n
+}
+
+lookup(scores: map[string, int], name: string) -> int {
+    let hp = scores[name] else { fail("no score for {name}") }
+    hp
+}
+
+// As a function's last expression.
+whole(n: int) -> int {
+    if n >= 0 { n } else { fail("{n} is negative") }
+}
+
+// A function whose whole body fails, never called.
+unfinished() -> int {
+    fail("not written yet")
+}
+
+main() {
+    var xs = list[int]()
+    xs.add(4)
+    print(first(xs))
+    var scores = map[string, int]()
+    scores["ann"] = 7
+    print(lookup(scores, "ann"))
+    print(whole(5))
+    // A statement: never an unused result.
+    if xs.len != 1 {
+        fail("one item")
+    }
+    print("done")
+}
+
+// expect: 4
+// expect: 7
+// expect: 5
+// expect: done

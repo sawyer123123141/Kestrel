@@ -1,0 +1,8 @@
+main() {
+    print("bye")
+    exit(3)
+    print("never printed")
+}
+
+// expect: bye
+// expect-exit: 3

@@ -42,6 +42,7 @@ mod pop_owner;
 mod regions;
 mod remove;
 mod stmt;
+mod stop;
 mod strings;
 mod structs;
 mod var_clash;
@@ -52,6 +53,7 @@ mod wrap;
 
 pub(crate) use builtins::{checksum_root, snapshot_verb};
 pub(crate) use consts::{check_consts, is_const_expr};
+pub(crate) use stop::stop_in_constant;
 pub(crate) use default_cycles::check_default_cycles;
 pub(crate) use structs::check_field_defaults;
 
@@ -337,7 +339,8 @@ impl<'a> BodyChecker<'a> {
         if ty != Ty::Never {
             return ty;
         }
-        self.error(e.span, "this `if` always leaves early, so it has no value");
+        let msg = self.never_message(e);
+        self.error(e.span, msg);
         Ty::Error
     }
 

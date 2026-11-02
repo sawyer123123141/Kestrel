@@ -38,7 +38,7 @@ pub(crate) fn rename_stmts(stmts: &mut [Stmt], subst: &[Subst]) {
                 rename_local(l, subst);
                 rename_expr(e, subst);
             }
-            Stmt::Return(Some(e)) | Stmt::RandSeed(e) => rename_expr(e, subst),
+            Stmt::Return(Some(e)) | Stmt::RandSeed(e) | Stmt::Fail { message: e, .. } | Stmt::Exit { code: e, .. } => rename_expr(e, subst),
             Stmt::Assign(p, e) | Stmt::ListAdd(p, e) | Stmt::SetLen(p, e) => {
                 rename_place(p, subst);
                 rename_expr(e, subst);
@@ -109,7 +109,7 @@ pub(crate) fn rename_stmts(stmts: &mut [Stmt], subst: &[Subst]) {
                 rename_args(args, subst);
                 rename_expr(count, subst);
             }
-            Stmt::PushArena(None, _) | Stmt::PopArena { .. } | Stmt::SetLine(_) | Stmt::Trap | Stmt::Fail(_) | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
+            Stmt::PushArena(None, _) | Stmt::PopArena { .. } | Stmt::SetLine(_) | Stmt::Trap | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
         }
     }
 }

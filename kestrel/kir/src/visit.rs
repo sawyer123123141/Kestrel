@@ -30,7 +30,7 @@ pub fn places(stmts: &[Stmt], f: &mut impl FnMut(&Place, bool)) {
 fn stmt<'a>(s: &'a Stmt, f: &mut impl FnMut(Node<'a>)) {
     f(Node::Stmt(s));
     match s {
-        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) => walk_expr(e, f),
+        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) | Stmt::Fail { message: e, .. } | Stmt::Exit { code: e, .. } => walk_expr(e, f),
         Stmt::Assign(p, e) | Stmt::ListAdd(p, e) | Stmt::SetLen(p, e) => {
             walk_expr(e, f);
             place(p, true, f);
@@ -99,7 +99,7 @@ fn stmt<'a>(s: &'a Stmt, f: &mut impl FnMut(Node<'a>)) {
         }
         Stmt::Print(parts) | Stmt::Write(parts) => print_args(parts, f),
         // None reads or writes a place. (`BindGlobal` only points a local at a global.)
-        Stmt::BindGlobal(..) | Stmt::SetLine(_) | Stmt::Trap | Stmt::Fail(_) | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
+        Stmt::BindGlobal(..) | Stmt::SetLine(_) | Stmt::Trap | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
     }
 }
 

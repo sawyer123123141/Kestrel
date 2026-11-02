@@ -71,7 +71,7 @@ impl<'a> BodyChecker<'a> {
 
     /// A call to a global built-in function.
     pub(crate) fn check_builtin_call(&mut self, e: &Expr, b: Builtin, args: &[Arg]) -> Ty {
-        if !b.is_pure() {
+        if !b.is_pure() && !b.never_returns() {
             self.check_random_use(e);
         }
         let name = b.name();
@@ -99,6 +99,7 @@ impl<'a> BodyChecker<'a> {
                 None => Ty::Error,
             },
             Builtin::FirstDifference => self.check_first_difference(e, args),
+            Builtin::Exit | Builtin::Fail => self.check_stop_call(e, b, args),
             Builtin::FromBytes => {
                 self.error(e.span, super::from_bytes::NEEDS_TYPE);
                 self.check_loose_args(args);

@@ -1,0 +1,71 @@
+pure leave(n: int) -> int {
+    if n > 0 {
+        exit(1)
+    }
+    n
+}
+
+let X = fail("x")
+
+struct S {
+    n: int = 1 + exit(2)
+}
+
+codes() {
+    exit(1.5)
+}
+
+messages() {
+    fail(3)
+}
+
+counts() {
+    fail("a", "b")
+}
+
+no_value() {
+    let n = fail("x")
+    print(fail("y"))
+}
+
+together() {
+    var xs = list[int]()
+    xs.add(1)
+    par for x in xs {
+        exit(0)
+    }
+    par for x in xs {
+        let f = () { exit(0) }
+        f()
+    }
+}
+
+pure promise() -> int {
+    let f = () -> int { exit(0) }
+    f()
+}
+
+// Neither is an unused result: a statement is how they are used, also in `pure` code.
+pure half(n: int) -> int {
+    if n % 2 != 0 {
+        fail("odd")
+    }
+    n / 2
+}
+
+main() {
+    print(half(2))
+    exit(0)
+}
+
+// error 3: pure functions can't call `exit`; return a value and let the caller decide
+// error 8: the value of a constant can't call `fail`; call it inside a function
+// error 11: the value of a constant can't call `exit`; call it inside a function
+// error 15: `exit` takes an `int` exit code, found float
+// error 19: `fail` takes the message as a string, found int
+// error 23: `fail` takes one value
+// error 27: `fail` never returns, so `n` would have no value
+// error 28: `fail` never returns, so this has no value
+// error 35: `par for` bodies can't call `exit`: iterations run at the same time
+// error 38: this closure calls `exit`, which a `par for` body can't do
+// error 44: this closure calls `exit`, which a `pure` function can't do

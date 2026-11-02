@@ -43,7 +43,7 @@ impl Helpers {
         ];
         let load = |l: LocalIdx| expr(ExprKind::Load(Place::local(l)), KTy::I64);
         let body = if t.is_owning(ty) {
-            vec![Stmt::Fail(owning_message(ty, iface, t))]
+            vec![Stmt::Fail { message: expr(ExprKind::StrLit(owning_message(ty, iface, t)), KTy::Str), line: 0 }]
         } else {
             let (size, align) = layout::size_align(t, concrete);
             let dup = ExprKind::BlockDup { src: Box::new(load(data)), size, align: align.max(1) };

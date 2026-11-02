@@ -65,11 +65,12 @@ impl Cx<'_> {
                 }
                 State::dead()
             }
-            Stmt::Return(_) => {
+            // `fail` and `exit` end the block as `return` does, after their operand is analysed.
+            Stmt::Return(_) | Stmt::Fail { .. } | Stmt::Exit { .. } => {
                 let _ = self.simple(st, s);
                 State::dead()
             }
-            Stmt::Trap | Stmt::Fail(_) => State::dead(),
+            Stmt::Trap => State::dead(),
             _ => self.simple(st, s),
         };
         self.leave();
@@ -116,7 +117,9 @@ impl Cx<'_> {
     /// `SetLen` stores.
     fn operands(&mut self, st: &State, s: &Stmt) -> Option<Val> {
         match s {
-            Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) => return Some(self.eval_v(st, e, true)),
+            Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) | Stmt::Fail { message: e, .. } | Stmt::Exit { code: e, .. } => {
+                return Some(self.eval_v(st, e, true))
+            }
             Stmt::Assign(p, e) | Stmt::SetLen(p, e) => {
                 let v = self.eval_v(st, e, true);
                 self.place(st, p, true);
@@ -175,8 +178,7 @@ impl Cx<'_> {
             | Stmt::PushArena(None, _)
             | Stmt::PopArena { .. }
             | Stmt::SetLine(_)
-            | Stmt::Trap
-            | Stmt::Fail(_) => {}
+            | Stmt::Trap => {}
         }
         None
     }

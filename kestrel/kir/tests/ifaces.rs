@@ -163,7 +163,8 @@ main() {
     );
     let copy = &m.funcs[m.tables[0].copy.0 as usize];
     let msg = "can't copy a `Pool` into a `Named`: it owns an `Arena`; pass it as `var` or keep it in a `list[Pool]`";
-    assert_eq!(copy.body, vec![Stmt::Fail(msg.to_string())]);
+    let message = Expr { kind: ExprKind::StrLit(msg.to_string()), ty: KTy::Str, line: 0 };
+    assert_eq!(copy.body, vec![Stmt::Fail { message, line: 0 }]);
 }
 
 #[test]

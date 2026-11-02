@@ -247,7 +247,8 @@ main() {}
     let m = compiled.expect("compiles").module;
     let msg = "can't copy a `Sprite` into a `Sized`: it owns a GPU object; pass it as `var` or keep it in a `list[Sprite]`";
     let copy = &m.funcs[m.tables.first().expect("one method table").copy.0 as usize];
-    assert_eq!(copy.body, vec![kestrel_kir::Stmt::Fail(msg.to_string())]);
+    let message = kestrel_kir::Expr { kind: kestrel_kir::ExprKind::StrLit(msg.to_string()), ty: kestrel_kir::KTy::Str, line: 0 };
+    assert_eq!(copy.body, vec![kestrel_kir::Stmt::Fail { message, line: 0 }]);
 }
 
 #[test]

@@ -1,0 +1,48 @@
+@prove(no_panic)
+pub half(n: int) -> int {
+    if n % 2 != 0 { fail("odd") }
+    n / 2
+}
+
+// (Recursive, so it isn't inlined and the chain names it.)
+pub third(n: int, d: int) -> int {
+    if d > 0 { return third(n, d - 1) }
+    if n % 3 != 0 { fail("{n} isn't a multiple of three") }
+    n / 3
+}
+
+@prove(no_panic)
+pub ninth(n: int) -> int {
+    third(n, 2)
+}
+
+// The message's own allocation happens only on the way out, so `no_alloc` holds.
+@prove(no_alloc)
+pub even(n: int) -> int {
+    if n % 2 != 0 { fail("{n} is odd") }
+    n
+}
+
+// A `fail` is code the program wrote, not a check.
+@prove(no_checks)
+pub whole(n: int) -> int {
+    if n < 0 { fail("negative") }
+    n
+}
+
+// `exit` breaks no contract, and both depend only on their arguments.
+@prove(deterministic, no_alloc, no_panic)
+pub done(n: int) {
+    if n > 9 { exit(n) }
+}
+
+@prove(deterministic)
+pub sure(n: int) -> int {
+    if n < 0 { fail("negative") }
+    n
+}
+
+main() {}
+
+// error 1: `half` can't be proven `no_panic`: it can fail on line 3: `fail` stops the program
+// error 14: `ninth` can't be proven `no_panic`: it calls `third` (line 16), which can fail (line 10): `fail` stops the program

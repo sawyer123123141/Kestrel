@@ -101,9 +101,17 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
                 self.b.ins().trap(TrapCode::unwrap_user(2));
                 return Ok(false);
             }
-            kir::Stmt::Fail(msg) => {
-                let (p, n) = self.string(msg)?;
-                self.call_id(self.shared.rt.fail, &[p, n]);
+            kir::Stmt::Fail { message, line } => {
+                let (p, n) = self.str_parts(message)?;
+                let (line, file) = self.loc_args(*line);
+                self.call_id(self.shared.rt.fail, &[p, n, line, file]);
+                self.b.ins().trap(TrapCode::unwrap_user(2));
+                return Ok(false);
+            }
+            kir::Stmt::Exit { code, line } => {
+                let code = self.expr(code)?;
+                let (line, file) = self.loc_args(*line);
+                self.call_id(self.shared.rt.exit, &[code, line, file]);
                 self.b.ins().trap(TrapCode::unwrap_user(2));
                 return Ok(false);
             }

@@ -193,6 +193,25 @@ fn an_assumption_is_a_way_to_fail() {
 }
 
 #[test]
+fn a_fail_is_a_way_to_fail_and_its_message_allocates_nothing() {
+    let src = "pure half(n: int) -> int {
+    if n % 2 != 0 {
+        fail(\"{n} is odd\")
+    }
+    n / 2
+}
+
+main() {}
+";
+    let dir = project("fail", &[("fail.kes", src)]);
+    let out = kestrel(&["check", "--report"], &dir.join("fail.kes"));
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("line 3: can fail: `fail` stops the program\n"), "{text}");
+    assert!(text.contains("no allocations"), "{text}");
+}
+
+#[test]
 fn a_trusted_assumption_is_no_way_to_fail_under_release() {
     // `--release` trusts `b > 0` (it removes only the division's check), so it isn't evaluated;
     // a checked build evaluates it.

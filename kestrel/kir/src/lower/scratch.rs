@@ -92,7 +92,8 @@ fn stmt_builds(s: &Stmt, calls: &mut Vec<FuncIdx>) -> bool {
         | Stmt::MapUnlock(..)
         | Stmt::SetLine(_)
         | Stmt::Trap
-        | Stmt::Fail(_) => false,
+        | Stmt::Fail { .. }
+        | Stmt::Exit { .. } => false,
     }
 }
 

@@ -92,9 +92,14 @@ pub enum Stmt {
     /// Stops the program with a run-time error. The body of an interface method's stub, which
     /// nothing calls.
     Trap,
-    /// Stops the program with this run-time error message (no line: the copy function of an
-    /// owning type's method table, which no line of the program calls directly).
-    Fail(String),
+    /// `fail(message)`: stops the program with the string `message` and " on line L" (a packed
+    /// line, see `pack_line`), through the runtime's `fail`, as every run-time error does. Line 0
+    /// names no line: the copy function of an owning type's method table, which no line of the
+    /// program calls directly, fails with a fixed message so. Ends its block, as `Return` does.
+    Fail { message: Expr, line: u32 },
+    /// `exit(code)`: flushes printed output, finishes a recording and ends the process with the
+    /// integer `code`; a code outside 0 to 255 fails naming `line` (a packed line). Ends its block.
+    Exit { code: Expr, line: u32 },
     /// `@assume`: the conditions (each with its id, an index into `Module::assumptions`), then
     /// `body`, the rest of the block the assumption is written in. Each condition is evaluated in
     /// order when `check` is `Check` (a false one stops the program); its body is a plain block,

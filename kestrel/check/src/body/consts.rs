@@ -205,7 +205,8 @@ fn check_const(c: &ConstDecl, i: usize, t: &mut Tables, diags: &mut Vec<Diagnost
     let mut bc = BodyChecker::new(t, diags, None, Ty::Unit, false);
     let want = c.ty.as_ref().map(|ty| bc.resolve(ty));
     let ty = if !is_const_expr(&c.value, bc.t) {
-        bc.error(c.value.span, CONST_EXPR);
+        let (span, msg) = super::stop_in_constant(&c.value).unwrap_or((c.value.span, CONST_EXPR.to_string()));
+        bc.error(span, msg);
         Ty::Error
     } else {
         let ty = bc.check_value(&c.value, want);
@@ -233,6 +234,8 @@ pub(crate) fn is_const_expr(e: &Expr, t: &Tables) -> bool {
     match &e.kind {
         ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::None | ExprKind::Str(_) | ExprKind::Ident(_) => true,
         ExprKind::Call { name, args, .. } if name == "Arena" => args.is_empty(),
+        // `fail` and `exit` never give a value (`stop_in_constant` says so).
+        ExprKind::Call { name, .. } if Builtin::global(name).is_some_and(Builtin::never_returns) => false,
         // Pure built-ins (`sqrt(2.0)`) are fine; the random ones change state.
         ExprKind::Call { name, args, .. } if Builtin::global(name).is_some_and(Builtin::is_pure) => all(args),
         // A struct construction (`Color(1, 0, 0)`, `vec2(0, 1)`) is a value like any other. A

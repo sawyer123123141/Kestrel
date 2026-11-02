@@ -122,7 +122,10 @@ impl Walk<'_> {
             }
             Stmt::Bind(_, p) => self.place_walk(p),
             Stmt::BindEnv { env, .. } => self.expr(env),
-            Stmt::CopyFnEnv(_) | Stmt::CopyIface(_) | Stmt::PushArena(..) | Stmt::FreeArena(_) | Stmt::Dup(_) | Stmt::MapSet(..) | Stmt::Trap | Stmt::Fail(_) => self.memory_stmt(s),
+            Stmt::CopyFnEnv(_) | Stmt::CopyIface(_) | Stmt::PushArena(..) | Stmt::FreeArena(_) | Stmt::Dup(_) | Stmt::MapSet(..) | Stmt::Trap => self.memory_stmt(s),
+            Stmt::Fail { message, line } => self.fail_stmt(message, *line),
+            // `exit` breaks no contract: what it does depends only on its code.
+            Stmt::Exit { code, .. } => self.expr(code),
             Stmt::MapUnlock(p, saved) => {
                 self.expr(saved);
                 self.place_walk(p);

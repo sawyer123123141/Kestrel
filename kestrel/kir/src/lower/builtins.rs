@@ -114,9 +114,12 @@ impl<'a> FnLowerer<'a> {
     }
 
     /// A call to a global built-in whose value is discarded. Only the random
-    /// numbers can be: the rest are pure, which the checker rejects.
+    /// numbers can be, and `fail` and `exit`, which give none: the rest are pure, which the
+    /// checker rejects.
     pub(crate) fn builtin_stmt(&mut self, b: Builtin, e: &ast::Expr, args: &[ast::Arg], out: &mut Vec<Stmt>) {
-        if b == Builtin::RandSeed {
+        if matches!(b, Builtin::Fail | Builtin::Exit) {
+            self.stop_stmt(b, e, args, out);
+        } else if b == Builtin::RandSeed {
             let seed = self.expr(&args[0].value);
             out.push(Stmt::RandSeed(seed));
         } else {

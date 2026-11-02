@@ -42,6 +42,7 @@ mod simd;
 mod simd_builtins;
 mod sort;
 mod stmt;
+mod stop;
 mod strings;
 mod stubs;
 mod subst;

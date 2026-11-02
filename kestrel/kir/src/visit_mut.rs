@@ -28,7 +28,7 @@ pub trait VisitMut {
 /// Visits what `s` holds, in the order codegen evaluates it.
 pub fn walk_stmt<V: VisitMut + ?Sized>(v: &mut V, s: &mut Stmt) {
     match s {
-        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) => v.visit_expr(e),
+        Stmt::Let(_, e) | Stmt::Return(Some(e)) | Stmt::RandSeed(e) | Stmt::Fail { message: e, .. } | Stmt::Exit { code: e, .. } => v.visit_expr(e),
         Stmt::Assign(p, e) | Stmt::ListAdd(p, e) | Stmt::SetLen(p, e) => {
             v.visit_expr(e);
             v.visit_place(p);
@@ -91,7 +91,7 @@ pub fn walk_stmt<V: VisitMut + ?Sized>(v: &mut V, s: &mut Stmt) {
             walk_args(v, args);
             v.visit_expr(count);
         }
-        Stmt::BindGlobal(..) | Stmt::PushArena(None, _) | Stmt::PopArena { .. } | Stmt::SetLine(_) | Stmt::Trap | Stmt::Fail(_) | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
+        Stmt::BindGlobal(..) | Stmt::PushArena(None, _) | Stmt::PopArena { .. } | Stmt::SetLine(_) | Stmt::Trap | Stmt::Break | Stmt::Continue | Stmt::Return(None) => {}
     }
 }
 

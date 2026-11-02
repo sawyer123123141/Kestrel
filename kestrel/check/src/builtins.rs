@@ -46,10 +46,14 @@ pub enum Builtin {
     FromBytes,
     /// `first_difference(a, b)`: where two values of one type first differ, or `none`.
     FirstDifference,
+    /// `exit(code)`: ends the program with an exit code. It never returns (`Ty::Never`).
+    Exit,
+    /// `fail(message)`: stops the program with a message and its line. It never returns.
+    Fail,
 }
 
 /// Every global function and constant. A new variant belongs here or in `METHODS`.
-const GLOBALS: [Builtin; 30] = [
+const GLOBALS: [Builtin; 32] = [
     Builtin::Sqrt,
     Builtin::Sin,
     Builtin::Cos,
@@ -80,6 +84,8 @@ const GLOBALS: [Builtin; 30] = [
     Builtin::ToBytes,
     Builtin::FromBytes,
     Builtin::FirstDifference,
+    Builtin::Exit,
+    Builtin::Fail,
 ];
 
 const METHODS: [Builtin; 6] = [Builtin::Length, Builtin::Normalized, Builtin::Dot, Builtin::DistanceTo, Builtin::Cross, Builtin::Sum];
@@ -146,6 +152,8 @@ impl Builtin {
             Builtin::ToBytes => "to_bytes",
             Builtin::FromBytes => "from_bytes",
             Builtin::FirstDifference => "first_difference",
+            Builtin::Exit => "exit",
+            Builtin::Fail => "fail",
         }
     }
 
@@ -154,9 +162,16 @@ impl Builtin {
         matches!(self, Builtin::Pi | Builtin::Tau)
     }
 
-    /// False only for the four random ones: they read and change the generator.
+    /// False only for the four random ones, which read and change the generator, and `exit`,
+    /// which ends the program. (`fail` is pure: it can stop a `pure` function, as an index out of
+    /// range can.)
     pub fn is_pure(self) -> bool {
-        !matches!(self, Builtin::Randf | Builtin::RandfRange | Builtin::RandiRange | Builtin::RandSeed)
+        !matches!(self, Builtin::Randf | Builtin::RandfRange | Builtin::RandiRange | Builtin::RandSeed | Builtin::Exit)
+    }
+
+    /// `exit` and `fail`: calls that never return, so they end a block as `return` does.
+    pub fn never_returns(self) -> bool {
+        matches!(self, Builtin::Exit | Builtin::Fail)
     }
 
     /// How many values a call takes (a method's receiver doesn't count).
@@ -165,7 +180,7 @@ impl Builtin {
         match self {
             Pi | Tau | Randf | Length | Normalized | Sum => 0,
             Sqrt | Sin | Cos | Tan | Asin | Acos | Atan | Exp | Log | Floor | Ceil | Round | Abs | Sign | RandSeed | Dot
-            | DistanceTo | Cross | Checksum | ToBytes | FromBytes => 1,
+            | DistanceTo | Cross | Checksum | ToBytes | FromBytes | Exit | Fail => 1,
             Atan2 | Pow | Min | Max | RandfRange | RandiRange | FirstDifference => 2,
             Clamp | Lerp => 3,
         }

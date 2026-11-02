@@ -121,7 +121,8 @@ impl<'a> BodyChecker<'a> {
                 let name = self.t.fns[callee.expect("a call").0 as usize].name.clone();
                 self.error(e.span, format!("the result of pure function `{name}` is unused, so this line does nothing"));
             }
-            Some(Res::Builtin(b)) if b.is_pure() => {
+            // (`fail` and `exit` never return: a statement is how they are used.)
+            Some(Res::Builtin(b)) if b.is_pure() && !b.never_returns() => {
                 self.error(e.span, format!("the result of `{}` is unused, so this line does nothing", b.name()));
             }
             Some(Res::MapRead) => {

@@ -16,12 +16,48 @@ pub const PANIC_ABSTRACT: i32 = 7;
 pub const PANIC_BOUNDS: i32 = 8;
 
 static FAILURE_HOOK: std::sync::OnceLock<fn(&str) -> !> = std::sync::OnceLock::new();
+static EXIT_HOOK: std::sync::OnceLock<fn(i32) -> !> = std::sync::OnceLock::new();
 
 /// Makes runtime failures (overflow, bad index, ...) call `hook` instead of
 /// ending the process: for hosts that embed Kestrel, like the Godot add-on.
 /// `hook` must not return. The first hook set stays.
 pub fn set_failure_hook(hook: fn(&str) -> !) {
     let _ = FAILURE_HOOK.set(hook);
+}
+
+/// Makes `exit(code)` call `hook` with the code instead of ending the process: for hosts that
+/// embed Kestrel, like the Godot add-on, whose editor must keep running. `hook` must not return.
+/// The first hook set stays.
+pub fn set_exit_hook(hook: fn(i32) -> !) {
+    let _ = EXIT_HOOK.set(hook);
+}
+
+/// `exit(code)`: flushes output, lets a recording or a replay finish, then hands `code` to the
+/// exit hook, or ends the process with it. Nothing else runs (no drops, no arena report), as with
+/// Rust's `process::exit`.
+pub fn exit(code: i32) -> ! {
+    crate::print::flush();
+    let code = crate::replay::on_exit(code).unwrap_or(code);
+    if let Some(hook) = EXIT_HOOK.get() {
+        hook(code);
+    }
+    std::process::exit(code);
+}
+
+/// The message for `exit` given a code outside 0 to 255. No `file` (empty) leaves out " of {file}".
+pub fn exit_range_message(code: i32, line: i32, file: &str) -> String {
+    let of = if file.is_empty() { String::new() } else { format!(" of {file}") };
+    format!("`exit` takes a code from 0 to 255, found {code} on line {line}{of}")
+}
+
+/// `exit(code)` at `line` of `file`: a code outside 0 to 255 fails, naming the line.
+#[no_mangle]
+pub extern "C" fn kestrel_rt_exit(code: i32, line: i32, file: *const FileName) -> ! {
+    if !(0..=255).contains(&code) {
+        let name = of_file(file);
+        fail(&exit_range_message(code, line, name.strip_prefix(" of ").unwrap_or("")));
+    }
+    exit(code)
 }
 
 /// Flushes output, then hands `msg` to the failure hook, or reports it and
@@ -137,16 +173,22 @@ pub extern "C" fn kestrel_rt_proof_failed(kind: i32, line: i32, file: *const Fil
     fail(&proof_failed_message(kind, line, name.strip_prefix(" of ").unwrap_or("")));
 }
 
-/// Fails with the message in the `len` bytes at `msg`: a compiled error message with no line (the
-/// copy function of an owning type's method table).
+/// `fail(message)`: fails with the message in the `len` bytes at `msg` and " on line {line}" of
+/// `file`. Line 0 names no line: the copy function of an owning type's method table fails so,
+/// with a fixed message.
 ///
 /// # Safety
-/// `msg` points at `len` bytes of UTF-8 that stay valid (compiled code passes static data).
+/// `msg` points at `len` bytes of UTF-8 that stay valid until the program ends (a string the
+/// program made, or static data), and `file` is null or points at a static `FileName`.
 #[no_mangle]
-pub unsafe extern "C" fn kestrel_rt_fail(msg: *const u8, len: i64) -> ! {
+pub unsafe extern "C" fn kestrel_rt_fail(msg: *const u8, len: i64, line: i32, file: *const FileName) -> ! {
     // SAFETY: the caller passes `len` readable bytes at `msg`.
     let bytes = unsafe { std::slice::from_raw_parts(msg, len as usize) };
-    fail(&String::from_utf8_lossy(bytes));
+    let text = String::from_utf8_lossy(bytes);
+    if line == 0 {
+        fail(&text);
+    }
+    fail(&format!("{text} on line {line}{}", of_file(file)));
 }
 
 /// The message for an `@assume` condition that is false: "assumption `n <= xs.len` is false on
@@ -215,6 +257,12 @@ mod tests {
         reset_call_site();
         assert_eq!(kestrel_rt_call_line.load(Ordering::Relaxed), 0);
         assert!(kestrel_rt_call_file.load(Ordering::Relaxed).is_null());
+    }
+
+    #[test]
+    fn a_bad_exit_code_names_the_code_line_and_file() {
+        assert_eq!(exit_range_message(300, 4, ""), "`exit` takes a code from 0 to 255, found 300 on line 4");
+        assert_eq!(exit_range_message(-1, 9, "lib.kes"), "`exit` takes a code from 0 to 255, found -1 on line 9 of lib.kes");
     }
 
     #[test]
