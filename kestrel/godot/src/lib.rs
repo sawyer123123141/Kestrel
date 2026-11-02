@@ -173,6 +173,12 @@ impl Kestrel {
                 print_output(&output);
                 Ok(())
             }
+            // `exit(0)`: a normal end, but the worker is parked; the next call starts a new one.
+            Some(Reply::Exited { output }) => {
+                print_output(&output);
+                self.worker = None;
+                Ok(())
+            }
             Some(Reply::Failed { msg, output }) => {
                 print_output(&output);
                 self.worker = None;
@@ -231,6 +237,12 @@ impl Kestrel {
             Some(Reply::Done { ret, heap, output }) => {
                 print_output(&output);
                 Ok(ret_ty.map_or(Variant::nil(), |t| bridge::read_ret(&t, &ret, &heap)))
+            }
+            // `exit(0)`: a normal end with no result, and the worker is parked.
+            Some(Reply::Exited { output }) => {
+                print_output(&output);
+                self.worker = None;
+                Ok(Variant::nil())
             }
             Some(Reply::Failed { msg, output }) => {
                 print_output(&output);

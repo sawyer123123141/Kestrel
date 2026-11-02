@@ -1,7 +1,9 @@
 //! Runs Kestrel calls on a thread of their own. Each call gets a fresh
 //! arena, freed once its result is copied out. A runtime panic parks the
 //! thread for good (unwinding through compiled code isn't safe) after
-//! sending the error back; the next call starts a new worker.
+//! sending the error back; the next call starts a new worker. `exit(code)`
+//! does the same: the editor's process never ends, and the code is reported,
+//! not applied.
 
 use std::cell::RefCell;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -21,6 +23,8 @@ pub struct Job {
 pub enum Reply {
     Done { ret: Vec<u8>, heap: Vec<u8>, output: Vec<u8> },
     Failed { msg: String, output: Vec<u8> },
+    /// The call ran `exit(0)`: a normal end with no result. The worker is parked.
+    Exited { output: Vec<u8> },
 }
 
 pub struct Worker {
@@ -36,9 +40,27 @@ thread_local! {
 /// The runtime's failure hook: report, then park this worker forever.
 fn on_failure(msg: &str) -> ! {
     let output = kestrel_runtime::print::take_output();
+    park_after(Reply::Failed { msg: msg.to_string(), output })
+}
+
+/// The runtime's exit hook: `exit(0)` sends the call's output back as a normal end with no result,
+/// another code as the failure "the program called exit(3)". Then this worker parks forever, as
+/// after a failure, and the next call starts a new one.
+fn on_exit(code: i32) -> ! {
+    let output = kestrel_runtime::print::take_output();
+    if code == 0 {
+        park_after(Reply::Exited { output })
+    } else {
+        park_after(Reply::Failed { msg: format!("the program called exit({code})"), output })
+    }
+}
+
+/// Sends `reply` for the running call, then parks this worker forever: compiled code can't be
+/// unwound.
+fn park_after(reply: Reply) -> ! {
     REPLIES.with_borrow(|r| {
         if let Some(tx) = r {
-            let _ = tx.send(Reply::Failed { msg: msg.to_string(), output });
+            let _ = tx.send(reply);
         }
     });
     loop {
@@ -49,6 +71,7 @@ fn on_failure(msg: &str) -> ! {
 impl Worker {
     pub fn start() -> Result<Worker, String> {
         kestrel_runtime::panic::set_failure_hook(on_failure);
+        kestrel_runtime::panic::set_exit_hook(on_exit);
         let (jobs, job_rx) = channel::<Job>();
         let (reply_tx, replies) = channel::<Reply>();
         std::thread::Builder::new()

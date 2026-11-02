@@ -323,7 +323,7 @@ fn a_file_that_is_not_a_replay_is_refused() {
     assert!(stderr(&out).contains("run.replay is not a Kestrel replay file"), "{}", stderr(&out));
 
     let mut newer = b"KESR".to_vec();
-    newer.push(2);
+    newer.push(3);
     fs::write(&file, newer).unwrap();
     let out = replay(&main, &file, &[]);
     exits(&out, 2, "a replay from a newer Kestrel");
@@ -332,4 +332,21 @@ fn a_file_that_is_not_a_replay_is_refused() {
     let out = replay(&main, &dir.join("missing.replay"), &[]);
     exits(&out, 2, "a missing replay");
     assert!(stderr(&out).contains("missing.replay"), "{}", stderr(&out));
+}
+
+#[test]
+fn an_exit_code_is_recorded_last_and_replayed() {
+    let src = "main() {\n    print(\"bye\")\n    exit(3)\n}\n";
+    let dir = scratch("exit_entry");
+    let (main, file) = (program(&dir, src), dir.join("run.replay"));
+    let recorded = record(&main, &file, Window::None, &[]);
+    exits(&recorded, 3, "the recorded run");
+    let read = ReplayFile::read(&file).unwrap();
+    assert_eq!(read.output, [Entry::Line(b"bye".to_vec()), Entry::Exit(3)]);
+    // The file is written in the format's version 2, which has the exit entry.
+    assert_eq!(fs::read(&file).unwrap()[4], 2);
+
+    let out = replay(&main, &file, &[]);
+    exits(&out, 0, "the replay");
+    assert_eq!(stdout(&out), "bye\nreplay matches (0 frames, 1 lines)\n");
 }

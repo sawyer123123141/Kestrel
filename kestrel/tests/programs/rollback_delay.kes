@@ -94,10 +94,6 @@ run(delay: int) {
 main() {
     run(0)
     run(2)
-    // A delay past MAX_DELAY is clamped to it, and one below 0 to 0.
-    let far = new_session(start(), me: 1, delay: 20)
-    let near = new_session(start(), me: 7, delay: -3)
-    print("clamped: {far.delay} {near.delay} {near.me}")
 }
 // expect: delay 0: rollbacks 5 57 deepest 2 2 confirmed 58 58
 // expect: delay 0: totals 60 30 and 57 30
@@ -105,4 +101,3 @@ main() {
 // expect: delay 2: rollbacks 0 0 deepest 0 0 confirmed 60 60
 // expect: delay 2: totals 57 28 and 57 28
 // expect: delay 2: confirmed states are the straight run's: true true
-// expect: clamped: 8 0 1

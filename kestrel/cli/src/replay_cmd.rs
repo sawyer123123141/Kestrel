@@ -55,7 +55,9 @@ pub fn start(args: &Args, replaying: Option<ReplayFile>) {
 }
 
 /// Ends recording or replaying once `main` has returned with exit code `code`: writes the
-/// recording, or prints the replay's report and gives its exit code (0 matches, 1 differs).
+/// recording, or prints the replay's report and gives its exit code (0 matches, 1 differs). A
+/// program that calls `exit` never returns here: the runtime's `exit` writes the recording or
+/// compares the ending itself (`replay::on_exit`), and the process ends with the code it gives.
 pub fn finish(code: i32) -> Result<i32, String> {
     let (text, code) = outcome(code, &replay::finish(Ending::Returned)?);
     if let Some(text) = text {

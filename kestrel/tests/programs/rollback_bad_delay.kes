@@ -1,0 +1,22 @@
+// `new_session` refuses a delay outside 0 to MAX_DELAY with a sentence naming its line in
+// rollback.kes (spec decision 6).
+use { Input, Rollback, new_session from rollback }
+
+struct Still: Rollback {
+    n: int = 0
+
+    pure step(var self, one: Input, two: Input) {
+        self.n += 1
+    }
+}
+
+main() {
+    print("before")
+    let s = new_session(Still(), me: 1, delay: 20)
+    print("never printed {s.me}")
+}
+
+// It used to clamp 20 to 8.
+// expect: before
+// expect-exit: 101
+// expect-stderr: `new_session` takes a `delay` from 0 to 8 frames, found 20 on line 90 of rollback.kes

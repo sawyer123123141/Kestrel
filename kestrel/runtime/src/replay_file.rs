@@ -11,9 +11,12 @@
 //!   result (see `replay::NativeId`);
 //! - the output log: a `u32` entry count, then each entry as a kind byte (0 a line that ended in
 //!   a line break, 1 the last line, with no line break, 2 the failure that stopped the program)
-//!   then its text as a string.
+//!   then its text as a string; or the kind byte 3, the program called `exit`, then its code as
+//!   an `i32` (the language round's spec, decision 5). A failure or an exit is the last entry; a
+//!   run that ended normally has neither, and ended with code 0.
 //!
-//! Nothing may follow. A file that breaks any of this is not a replay file.
+//! Nothing may follow. A file that breaks any of this is not a replay file. Version 1 files, which
+//! have no exit entries, are read too.
 
 use std::path::Path;
 
@@ -21,7 +24,7 @@ use std::path::Path;
 pub const MAGIC: [u8; 4] = *b"KESR";
 
 /// The format version, the file's fifth byte.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 
 /// The builds a recording can come from.
 pub const BUILDS: [&str; 2] = ["checked", "release"];
@@ -35,6 +38,8 @@ pub enum Entry {
     Partial(Vec<u8>),
     /// The message of the runtime failure that stopped the program: always the last entry.
     Failure(String),
+    /// The code the program gave `exit`: always the last entry.
+    Exit(i32),
 }
 
 /// A replay file's contents.
@@ -135,6 +140,11 @@ impl ReplayFile {
                 Entry::Line(text) => (0, text.as_slice()),
                 Entry::Partial(text) => (1, text.as_slice()),
                 Entry::Failure(msg) => (2, msg.as_bytes()),
+                Entry::Exit(code) => {
+                    out.push(3);
+                    out.extend_from_slice(&code.to_le_bytes());
+                    continue;
+                }
             };
             out.push(kind);
             put_bytes(text, "output line", &mut out)?;
@@ -148,10 +158,12 @@ impl ReplayFile {
         if r.take(4)? != MAGIC {
             return Err(Unreadable::NotReplay);
         }
-        match r.u8()? {
-            VERSION => {}
-            v if v > VERSION => return Err(Unreadable::Newer),
-            _ => return Err(Unreadable::NotReplay),
+        let file_version = r.u8()?;
+        if file_version > VERSION {
+            return Err(Unreadable::Newer);
+        }
+        if file_version == 0 {
+            return Err(Unreadable::NotReplay);
         }
         let (program, version, build, window) = (r.string()?, r.string()?, r.string()?, r.string()?);
         if !BUILDS.contains(&build.as_str()) || crate::replay::WindowMode::parse(&window).is_none() {
@@ -172,18 +184,18 @@ impl ReplayFile {
         }
         let mut output = Vec::with_capacity(count);
         for i in 0..count {
-            let kind = r.u8()?;
-            let text = r.bytes()?;
-            output.push(match kind {
-                0 => Entry::Line(text),
-                // Last, or just before the failure that ended the run after it.
-                1 if i + 2 >= count => Entry::Partial(text),
-                2 if i + 1 == count => Entry::Failure(String::from_utf8(text).map_err(|_| Unreadable::NotReplay)?),
+            let last = i + 1 == count;
+            output.push(match r.u8()? {
+                0 => Entry::Line(r.bytes()?),
+                // Last, or just before the failure or exit that ended the run after it.
+                1 if i + 2 >= count => Entry::Partial(r.bytes()?),
+                2 if last => Entry::Failure(String::from_utf8(r.bytes()?).map_err(|_| Unreadable::NotReplay)?),
+                3 if last && file_version >= 2 => Entry::Exit(i32::from_le_bytes(r.take(4)?.try_into().expect("4 bytes"))),
                 _ => return Err(Unreadable::NotReplay),
             });
         }
         if let [.., Entry::Partial(_), last] = &output[..] {
-            if !matches!(last, Entry::Failure(_)) {
+            if !matches!(last, Entry::Failure(_) | Entry::Exit(_)) {
                 return Err(Unreadable::NotReplay);
             }
         }

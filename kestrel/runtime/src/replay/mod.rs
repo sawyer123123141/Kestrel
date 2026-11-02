@@ -6,8 +6,9 @@
 //! `frame`): a recording appends it to the native log, and a replay hands back the logged value
 //! instead, after checking that the log names the same native. Every line `print` writes to
 //! stdout reaches `print_bytes`, which keeps it (recording) or compares it with the recorded line
-//! (replaying). `finish` ends either when `main` returns, and the runtime's `fail` calls
-//! `on_failure` before it exits, so a failure is recorded, and replayed, too.
+//! (replaying). `finish` ends either when `main` returns, the runtime's `fail` calls `on_failure`
+//! before it exits and its `exit` calls `on_exit`, so a failure and an exit code are recorded, and
+//! replayed, too.
 //!
 //! The native log's ids are `NativeId`'s (`ids.rs`), one per logged native in module order.
 //!
@@ -279,14 +280,28 @@ pub fn on_failure(msg: &str) -> Option<i32> {
     }
 }
 
-/// The runtime's `exit` path, after printed output is flushed and before the process ends with
-/// `code`: the exit code to end with instead, or `None` to end with `code`.
-///
-/// For now it does nothing: recording the code (entry kind 3) and comparing it in a replay come
-/// with the replay format's version 2.
+/// The runtime's `exit` path, after printed output is flushed and before the exit hook or the
+/// end of the process: a recording writes its file with the code as the output's last entry. A
+/// replay compares how the runs ended, prints its report and gives the exit code to end with
+/// instead (0 when it matches, whatever code both runs ended with). `None` when the exit goes on
+/// with `code`.
 pub fn on_exit(code: i32) -> Option<i32> {
-    let _ = code;
-    None
+    if !ACTIVE.load(Ordering::Relaxed) {
+        return None;
+    }
+    match finish(Ending::Exit(code)) {
+        Ok(Report::Off | Report::Recorded) => None,
+        Ok(report) => {
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(out, "{}", report.text().unwrap_or_default());
+            let _ = out.flush();
+            Some(report.exit_code())
+        }
+        Err(e) => {
+            eprintln!("kestrel: {e}");
+            None
+        }
+    }
 }
 
 #[cfg(test)]

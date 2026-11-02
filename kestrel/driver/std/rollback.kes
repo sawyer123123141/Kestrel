@@ -24,11 +24,10 @@
 // `difference(a, b)` says where two sessions in one process differ, and `FakeNet` stands in for a
 // network in tests and demos.
 //
-// `me` is 2 for the second player and 1 for anything else. `delay` is frames of input delay,
-// from 0 to `MAX_DELAY` (others are clamped): this player's input is for frame `now + delay`, which
-// hides that many frames of latency, so there are fewer rollbacks; the first `delay` frames have
-// no button held on both machines. (A library can't yet stop a program with a message, so values
-// out of range are clamped rather than refused.)
+// `me` is 1 or 2, the player this session is. `delay` is frames of input delay, from 0 to
+// `MAX_DELAY`: this player's input is for frame `now + delay`, which hides that many frames of
+// latency, so there are fewer rollbacks; the first `delay` frames have no button held on both
+// machines. `new_session` stops the program with a sentence for any other `me` or `delay`.
 //
 // `desync()` gives the report once; Kestrel has no `if let`, so read it in a helper:
 //
@@ -81,8 +80,15 @@ pub struct Packet {
     sum: i64
 }
 
-// A session for player `me` whose game starts as `start`, with `delay` frames of input delay.
+// A session for player `me` (1 or 2) whose game starts as `start`, with `delay` frames of input
+// delay (0 to MAX_DELAY).
 pub pure new_session[G: Rollback](start: G, me: int, delay: int) -> Session[G] {
+    if me != 1 and me != 2 {
+        fail("`new_session` takes `me: 1` or `me: 2`, found {me}")
+    }
+    if delay < 0 or delay > MAX_DELAY {
+        fail("`new_session` takes a `delay` from 0 to {MAX_DELAY} frames, found {delay}")
+    }
     var ring: list[G] = []
     for k from 0 to RING {
         ring.add(start)
@@ -91,7 +97,7 @@ pub pure new_session[G: Rollback](start: G, me: int, delay: int) -> Session[G] {
     for k from 0 to HIST {
         remote_at[k] = -1
     }
-    Session(me: if me == 2 { 2 } else { 1 }, delay: clamp(delay, 0, MAX_DELAY), game: start, now: 0, ring: ring,
+    Session(me: me, delay: delay, game: start, now: 0, ring: ring,
         local_in: array[Input](HIST), remote_in: array[Input](HIST), guess: array[Input](HIST), remote_at: remote_at, known: 0,
         last: Input(), last_at: -1, wrong: NONE, checked: 0, sum_frame: 0, sum: 0, mine: array[i64](SUMS),
         mine_at: array[int](SUMS), theirs: array[i64](SUMS), theirs_at: array[int](SUMS), compared: 0, desync_at: -1,

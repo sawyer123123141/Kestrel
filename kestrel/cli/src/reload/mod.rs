@@ -48,7 +48,9 @@ pub fn run(program: JitProgram, compiled: Compiled, job: Option<Job>) -> Result<
 }
 
 /// The session on the game thread: `setup`, then `frame` until it returns false, with a reload
-/// between two frames whenever one is ready.
+/// between two frames whenever one is ready. `frame` giving false ends it with code 0; `exit` in
+/// `setup` or `frame` ends the process at once with its code (the runtime's `exit`, which also
+/// finishes a recording), and a failure ends it with 101.
 fn session(mut live: Live, mut reloader: Option<Reloader>) -> i32 {
     live.init();
     let mut buffer = StateBuffer::new(&live.info);

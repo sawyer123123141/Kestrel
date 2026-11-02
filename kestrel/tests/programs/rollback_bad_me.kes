@@ -1,0 +1,22 @@
+// `new_session` refuses a player other than 1 or 2 with a sentence naming its line in
+// rollback.kes (spec decision 6).
+use { Input, Rollback, new_session from rollback }
+
+struct Still: Rollback {
+    n: int = 0
+
+    pure step(var self, one: Input, two: Input) {
+        self.n += 1
+    }
+}
+
+main() {
+    print("before")
+    let s = new_session(Still(), me: 7, delay: 0)
+    print("never printed {s.me}")
+}
+
+// It used to take 7 as player 1.
+// expect: before
+// expect-exit: 101
+// expect-stderr: `new_session` takes `me: 1` or `me: 2`, found 7 on line 87 of rollback.kes

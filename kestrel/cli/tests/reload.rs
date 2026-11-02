@@ -309,3 +309,16 @@ fn a_result_in_state_survives() {
     s.wait_err("reloaded prog.kes in ");
     follow(&mut s, last, 2, 3, 5);
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
+fn exit_in_frame_ends_the_session_with_its_code() {
+    // `frame` calls `exit(4)` on frame 3: the process ends with 4 after printing that frame.
+    let src = counter(2).replace("    s.n += 1\n", "    s.n += 1\n    if s.n == 3 {\n        print(\"bye\")\n        exit(4)\n    }\n");
+    let path = scratch("exit").join("prog.kes");
+    fs::write(&path, src).unwrap();
+    let out = kestrel_run(&path, 100_000, &[]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(4), "{text}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(text.lines().collect::<Vec<_>>(), ["setup", "frame 1 value 2", "frame 2 value 4", "bye"], "{text}");
+}

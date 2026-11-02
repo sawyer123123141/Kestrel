@@ -30,7 +30,7 @@ fn sample() -> ReplayFile {
 fn a_file_reads_back_as_it_was_written() {
     let file = sample();
     let bytes = file.to_bytes().unwrap();
-    assert_eq!(&bytes[..5], b"KESR\x01");
+    assert_eq!(&bytes[..5], b"KESR\x02");
     assert_eq!(ReplayFile::from_bytes(&bytes), Ok(file.clone()));
 
     let mut failed = file;
@@ -45,7 +45,7 @@ fn the_header_is_laid_out_as_documented() {
     file.args.clear();
     file.natives = vec![1, 1];
     file.output.clear();
-    let mut expected = b"KESR\x01".to_vec();
+    let mut expected = b"KESR\x02".to_vec();
     for s in ["games/pong.kes", "0.1.0", "checked", "headless-quiet"] {
         expected.extend_from_slice(&(s.len() as u32).to_le_bytes());
         expected.extend_from_slice(s.as_bytes());
@@ -68,7 +68,7 @@ fn a_damaged_file_is_not_a_replay_file() {
     assert_eq!(ReplayFile::from_bytes(&longer), Err(Unreadable::NotReplay), "a byte too many");
 
     let mut newer = bytes.clone();
-    newer[4] = 2;
+    newer[4] = 3;
     assert_eq!(ReplayFile::from_bytes(&newer), Err(Unreadable::Newer));
     let mut older = bytes.clone();
     older[4] = 0;
@@ -254,7 +254,7 @@ fn a_recorded_failure_must_recur() {
     check.print(&output, b"frame 2\npartial", 3).unwrap();
     assert_eq!(
         check.end(&output, &Ending::Returned, 3),
-        Err("replay differs at frame 3, line 3:\n  recorded: <failure: boom on line 3>\n  this run: <end of output>".to_string())
+        Err("replay differs at the end: the recording failed, this run exited with code 0".to_string())
     );
     let mut check = Check::default();
     check.print(&output, b"frame 2\npartial", 3).unwrap();
@@ -271,4 +271,76 @@ fn reports_say_what_happened() {
     for mode in [WindowMode::Real, WindowMode::Hidden, WindowMode::Headless, WindowMode::HeadlessQuiet] {
         assert_eq!(WindowMode::parse(mode.as_str()), Some(mode));
     }
+}
+
+#[test]
+fn an_exit_entry_reads_back_and_version_1_files_still_read() {
+    let mut file = sample();
+    file.output.push(Entry::Exit(3));
+    let bytes = file.to_bytes().unwrap();
+    // Kind 3, then the code as an `i32`.
+    assert_eq!(&bytes[bytes.len() - 5..], [3, 3, 0, 0, 0]);
+    assert_eq!(ReplayFile::from_bytes(&bytes), Ok(file.clone()));
+    // Only last, after an unfinished line at most.
+    file.output.insert(0, Entry::Exit(1));
+    assert_eq!(ReplayFile::from_bytes(&file.to_bytes().unwrap()), Err(Unreadable::NotReplay));
+    file.output = vec![Entry::Exit(0), Entry::Failure("boom".to_string())];
+    assert_eq!(ReplayFile::from_bytes(&file.to_bytes().unwrap()), Err(Unreadable::NotReplay));
+
+    // A version 1 file is the same bytes with a 1, and has no exit entries.
+    let old = sample();
+    let mut bytes = old.to_bytes().unwrap();
+    bytes[4] = 1;
+    assert_eq!(ReplayFile::from_bytes(&bytes), Ok(old));
+    let mut exited = sample();
+    exited.output = vec![Entry::Exit(3)];
+    let mut bytes = exited.to_bytes().unwrap();
+    bytes[4] = 1;
+    assert_eq!(ReplayFile::from_bytes(&bytes), Err(Unreadable::NotReplay));
+}
+
+#[test]
+fn a_recording_keeps_an_exit_code_and_a_replay_compares_it() {
+    let mut keep = Keep::default();
+    keep.print(b"bye\nlast");
+    keep.end(&Ending::Exit(3));
+    assert_eq!(keep.entries, [Entry::Line(b"bye".to_vec()), Entry::Partial(b"last".to_vec()), Entry::Exit(3)]);
+    let output = keep.entries;
+
+    let ended = |ending: Ending| {
+        let mut check = Check::default();
+        check.print(&output, b"bye\nlast", 4).unwrap();
+        check.end(&output, &ending, 4)
+    };
+    assert_eq!(ended(Ending::Exit(3)), Ok(2));
+    assert_eq!(ended(Ending::Exit(1)), Err("replay differs at the end: the recording exited with code 3, this run with 1".to_string()));
+    assert_eq!(ended(Ending::Returned), Err("replay differs at the end: the recording exited with code 3, this run with 0".to_string()));
+    assert_eq!(
+        ended(Ending::Failure("boom".to_string())),
+        Err("replay differs at the end: the recording exited with code 3, this run failed".to_string())
+    );
+
+    // A normal end is code 0, the same as `exit(0)`.
+    let output = [Entry::Line(b"bye".to_vec())];
+    let ended = |ending: Ending| {
+        let mut check = Check::default();
+        check.print(&output, b"bye\n", 4).unwrap();
+        check.end(&output, &ending, 4)
+    };
+    assert_eq!(ended(Ending::Exit(0)), Ok(1));
+    assert_eq!(ended(Ending::Exit(1)), Err("replay differs at the end: the recording exited with code 0, this run with 1".to_string()));
+    let output = [Entry::Failure("boom".to_string())];
+    let mut check = Check::default();
+    assert_eq!(
+        check.end(&output, &Ending::Exit(2), 0),
+        Err("replay differs at the end: the recording failed, this run exited with code 2".to_string())
+    );
+
+    // More recorded output than this run printed before it exited is a difference in the lines.
+    let output = [Entry::Line(b"bye".to_vec()), Entry::Exit(3)];
+    let mut check = Check::default();
+    assert_eq!(
+        check.end(&output, &Ending::Exit(3), 0),
+        Err("replay differs at frame 0, line 1:\n  recorded: bye\n  this run: <exit with code 3>".to_string())
+    );
 }

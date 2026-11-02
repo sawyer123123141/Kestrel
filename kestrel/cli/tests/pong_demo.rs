@@ -214,9 +214,12 @@ fn matched_frames(out: &str) -> i64 {
 }
 
 /// What Pong prints when it is given `file` as its argument: it checks that replay file instead
-/// of playing. The window is headless anyway, so a mistake can't open a real one.
-fn check_file(main: &Path, file: &Path) -> String {
-    stdout(&ok(headless(kestrel().arg("run").arg(main).arg(file), 600), "check the replay file"))
+/// of playing, and exits with `code` (0 matches, 1 differs, 2 can't be read or isn't a replay).
+/// The window is headless anyway, so a mistake can't open a real one.
+fn check_file(main: &Path, file: &Path, code: i32) -> String {
+    let out = headless(kestrel().arg("run").arg(main).arg(file), 600).output().unwrap();
+    assert_eq!(out.status.code(), Some(code), "check the replay file {}:\n{}", file.display(), String::from_utf8_lossy(&out.stderr));
+    stdout(&out)
 }
 
 /// Where a replay file's inputs start: after the 13-byte header, the start `Game` (40 bytes) and
@@ -243,7 +246,7 @@ fn writes_and_checks_its_replay_file() {
     assert_eq!(bytes.len(), INPUTS_AT + 24 * f + 4 + 8 * (f / 60), "pong.replay's size for {f} frames");
 
     // Given the file, Pong checks it and plays nothing (a played run would print more lines).
-    assert_eq!(check_file(&main, &file), format!("replay matches ({frames} frames)
+    assert_eq!(check_file(&main, &file, 0), format!("replay matches ({frames} frames)
 "));
 }
 
@@ -265,7 +268,7 @@ fn an_injected_desync_shows_in_the_file_check() {
     let file = dir.join("changed.replay");
     fs::write(&file, &bytes).unwrap();
     // The file keeps a checksum every 60 frames, so the first one after the change shows it.
-    assert_eq!(check_file(&main, &file), "replay differs at frame 360
+    assert_eq!(check_file(&main, &file, 1), "replay differs at frame 360
 ");
 }
 
@@ -279,11 +282,11 @@ fn a_bad_file_is_refused() {
 ").unwrap();
     let expected = format!("{} is not a Pong replay; pass a file that a run of Pong wrote, like pong.replay
 ", text.display());
-    assert_eq!(check_file(&main, &text), expected);
+    assert_eq!(check_file(&main, &text, 2), expected);
 
     // A file that isn't there gives `file.error()`'s sentence, which names it.
     let missing = dir.join("missing.replay");
-    let out = check_file(&main, &missing);
+    let out = check_file(&main, &missing, 2);
     assert!(out.starts_with("could not open `") && out.contains("missing.replay") && out.lines().count() == 1, "{out}");
 }
 

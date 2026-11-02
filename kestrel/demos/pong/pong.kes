@@ -199,16 +199,22 @@ save_replay(replay: Replay[Game]) {
 }
 
 // Reads the replay saved at `path`, runs it again from its start and prints the check's result.
+// Like `kestrel replay`, it exits 1 when the replay differs and 2 when the file can't be read or
+// isn't a Pong replay.
 check_file(path: string) {
     let bytes = file.read(path) else {
         print(file.error())
-        return
+        exit(2)
     }
     let replay = from_bytes[Replay[Game]](bytes) else {
         print("{path} is not a Pong replay; pass a file that a run of Pong wrote, like {REPLAY_FILE}")
-        return
+        exit(2)
     }
-    print_check(check_replay(replay), replay.frames())
+    let bad = check_replay(replay)
+    print_check(bad, replay.frames())
+    if bad >= 0 {
+        exit(1)
+    }
 }
 
 // The game between two frames. `kestrel run` keeps it across an edit of the program (a hot
