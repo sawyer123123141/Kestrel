@@ -10,8 +10,8 @@ use crate::generic::expand::check_type_expansion;
 use crate::generic::GenericOwner;
 use crate::sig::{Sig, SigParam};
 use crate::tables::{
-    ConstInfo, EnumId, EnumInfo, FieldInfo, FnId, FnInfo, IfaceId, IfaceInfo, ParamSig, StructId, StructInfo, Tables, VariantInfo,
-    BUILTIN_STRUCTS,
+    is_prelude_result, ConstInfo, EnumId, EnumInfo, FieldInfo, FnId, FnInfo, IfaceId, IfaceInfo, ParamSig, StructId, StructInfo, Tables,
+    VariantInfo, BUILTIN_STRUCTS, RESULT,
 };
 use crate::ty::Ty;
 use crate::vectors::COMPONENTS;
@@ -40,7 +40,9 @@ pub fn is_reserved_name(name: &str) -> bool {
 /// The error for a name an item, local or parameter can't take, if it is one: a built-in name,
 /// or one that starts with `COMPILER_PREFIX`. `shown` is the name as the message writes it.
 pub(crate) fn reserved_name_error(name: &str, shown: &str) -> Option<String> {
-    if is_builtin_name(name) {
+    if name == RESULT {
+        Some(format!("`{RESULT}` is a built-in type; pick another name"))
+    } else if is_builtin_name(name) {
         Some(format!("`{shown}` is a built-in name; pick another"))
     } else if name.starts_with(COMPILER_PREFIX) {
         Some(format!("names starting with `{COMPILER_PREFIX}` are reserved for the compiler; pick another"))
@@ -82,6 +84,11 @@ pub(crate) fn collect(program: &Program, t: &mut Tables, diags: &mut Vec<Diagnos
             Item::Enum(e) => {
                 let id = EnumId(t.enums.len() as u32);
                 t.enum_by_name.entry(e.name.clone()).or_insert(id);
+                // The prelude's `Result` is the type of that name, even beside a refused one.
+                if is_prelude_result(&e.name, e.name_span, &program.builtin_ranges) {
+                    t.result = Some(id);
+                    t.enum_by_name.insert(e.name.clone(), id);
+                }
                 t.enums.push(EnumInfo {
                     name: e.name.clone(),
                     item: item_idx,
@@ -185,7 +192,9 @@ fn check_names(program: &Program, diags: &mut Vec<Diagnostic>) {
         };
         // Items from other modules are named `module.name`.
         let own = name.rsplit('.').next().unwrap_or(name);
-        if let Some(msg) = reserved_name_error(own, name) {
+        if is_prelude_result(name, span, &program.builtin_ranges) {
+            seen.insert(name);
+        } else if let Some(msg) = reserved_name_error(own, name) {
             diags.push(Diagnostic::error(span, msg));
         } else if !seen.insert(name) {
             diags.push(Diagnostic::error(span, format!("`{name}` is defined twice")));

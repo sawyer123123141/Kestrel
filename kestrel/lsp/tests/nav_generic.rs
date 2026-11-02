@@ -75,3 +75,16 @@ fn the_type_before_a_variant_leads_to_its_declaration() {
     assert!(s.code.starts_with("enum Maybe"), "{}", s.code);
     assert_eq!(s.def.map(|d| d.start), Some(src.find("Maybe").unwrap() as u32));
 }
+
+#[test]
+fn the_built_in_result_names_the_prelude_and_leads_to_it() {
+    let src = "load() -> Result[int, string] {\n    3\n}\nmain() {\n    print(load())\n}\n";
+    let a = analyze("main.kes", src, true, &|_| None);
+    assert!(a.diags.is_empty(), "{:?}", a.diags);
+    let s = resolve(&a, src.find("Result").unwrap() as u32 + 1).expect("the type");
+    let want = "// built in (<builtin>/prelude.kes): every file sees it without a `use`\nenum Result[T, E] {\n    Ok(value: T)\n    Err(error: E)\n}";
+    assert_eq!(s.code, want);
+    // Its definition is the prelude's file, as a built-in module's item is in its own.
+    let (i, name) = defined_in(&a, s.def.expect("a definition"));
+    assert_eq!((a.sources[i].path.as_str(), name.as_str()), ("<builtin>/prelude.kes", "Result"));
+}

@@ -1,0 +1,41 @@
+// The built-in `Result[T, E]` (decisions 7 and 8): its name is reserved, a value goes in as `Ok`
+// only when it converts to `T` and isn't an `E`, and only `Result` may hold an optional.
+struct World {
+    a: Arena
+}
+
+enum Result {
+    A
+}
+
+struct Box[Result] {
+    v: int
+}
+
+enum Maybe[T] {
+    Nothing
+    Just { value: T }
+}
+
+keep(w: Result[World, string]) {}
+
+call(f: Result[(int) -> int, string]) {}
+
+hold(m: Maybe[int?]) {}
+
+main() {
+    let a: Result[int, string] = "x"
+    let b: Result[string, string] = "x"
+    let c: Result[float, int] = 3
+    let d: Result[int, string] = true
+    let fine: Result[int?, string] = 3
+}
+// error 7: `Result` is a built-in type; pick another name
+// error 11: `Result` is a built-in type; pick another name
+// error 20: `World` owns an `Arena`, so it can't be `T` yet
+// error 22: `(int) -> int` is a function type, so it can't be `T` yet
+// error 24: `int?` is an optional, so it can't be `T` yet; hold it in a struct field instead
+// error 27: this is a `string`, the error type of `Result[int, string]`; write `Result.Err(error: ...)` for an error
+// error 28: `Result[string, string]` has one type for its value and its error; write `Result.Ok(value: ...)` or `Result.Err(error: ...)`
+// error 29: this is an `int`, the error type of `Result[float, int]`; write `Result.Err(error: ...)` for an error
+// error 30: expected Result[int, string], found bool

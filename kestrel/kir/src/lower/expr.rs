@@ -10,6 +10,12 @@ impl<'a> FnLowerer<'a> {
     /// Lowers `e` and applies any implicit conversion the checker recorded.
     pub(crate) fn expr(&mut self, e: &ast::Expr) -> Expr {
         let Some(to) = self.coerce(e.id) else { return self.expr_raw(e) };
+        self.expr_as(e, to)
+    }
+
+    /// `e` converted to `to`: the conversion the checker recorded, or the `T` an `Ok` wrap
+    /// converts to first.
+    fn expr_as(&mut self, e: &ast::Expr, to: Ty) -> Expr {
         // A struct or enum value used as an interface value (or an optional of one).
         if let Some(v) = self.iface_coercion(e, to) {
             return v;
@@ -21,7 +27,22 @@ impl<'a> FnLowerer<'a> {
             let line = v.line;
             return Expr { kind: ExprKind::Some(Box::new(v)), ty: kty(to), line };
         }
+        if let Some(v) = self.ok_wrapped(e, to) {
+            return v;
+        }
         self.converted(e, kty(to))
+    }
+
+    /// A `T` used as a `Result[T, E]`: `Result.Ok(value: v)`, `v` converted to `T` first and
+    /// stored as a variant's field is (`owned`), exactly as a written `Result.Ok(value: v)` lowers.
+    fn ok_wrapped(&mut self, e: &ast::Expr, to: Ty) -> Option<Expr> {
+        let (value, _) = self.t.result_parts(to)?;
+        let Ty::Enum(id) = to else { return None };
+        let ok = self.t.enm(id).variants.iter().position(|v| v.name == "Ok")? as u32;
+        let v = if self.ty(e.id) == value { self.expr_raw(e) } else { self.expr_as(e, value) };
+        let v = self.owned(v, false);
+        let line = v.line;
+        Some(Expr { kind: ExprKind::VariantLit(EnumIdx(id.0), ok, vec![v]), ty: kty(to), line })
     }
 
     /// `e` converted to the type `to`.

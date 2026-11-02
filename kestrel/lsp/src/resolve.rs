@@ -7,6 +7,9 @@ use kestrel_syntax::Span;
 
 use crate::find::{find, Hit};
 
+/// The line hover shows above the prelude's `Result`.
+const PRELUDE_NOTE: &str = "// built in (<builtin>/prelude.kes): every file sees it without a `use`\n";
+
 /// A name or expression, resolved.
 #[derive(Debug, PartialEq)]
 pub struct Symbol {
@@ -184,7 +187,12 @@ impl Resolver<'_> {
     fn enm(&self, e: kestrel_check::EnumId) -> Symbol {
         let info = self.t.enm(e);
         let variants: Vec<String> = info.variants.iter().map(|v| format!("    {}", self.variant_text(&v.name, &v.fields))).collect();
-        Symbol::new(format!("enum {} {{\n{}\n}}", info.name, variants.join("\n")), Some(info.span))
+        // The prelude's `Result`, with its placeholders and where it comes from.
+        let (head, name) = match self.t.result == Some(e) {
+            true => (PRELUDE_NOTE, self.ty(Ty::Enum(e))),
+            false => ("", info.name.clone()),
+        };
+        Symbol::new(format!("{head}enum {name} {{\n{}\n}}", variants.join("\n")), Some(info.span))
     }
 
     fn variant(&self, e: kestrel_check::EnumId, v: u32) -> Symbol {

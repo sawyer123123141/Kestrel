@@ -49,7 +49,9 @@ impl Tables {
         if self.is_owning(arg) {
             return Some(format!("`{x}` owns {}, so it can't be `{p}` yet", self.owns_what(arg)));
         }
-        if matches!(arg, Ty::Optional(_)) {
+        // `Result` alone may hold an optional (`from_bytes[int?]` gives `Result[int?, string]`).
+        let in_result = matches!(self.generic.param(param).owner, GenericOwner::Enum(e) if Some(e) == self.result);
+        if matches!(arg, Ty::Optional(_)) && !in_result {
             return Some(format!("`{x}` is an optional, so it can't be `{p}` yet; hold it in a struct field instead"));
         }
         if matches!(arg, Ty::Fn(_)) {

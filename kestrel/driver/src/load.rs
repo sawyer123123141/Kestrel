@@ -18,7 +18,7 @@ use kestrel_syntax::ast::{Item, UseClause};
 use kestrel_syntax::link::Module;
 use kestrel_syntax::{parse_at, Diagnostic};
 
-use crate::prelude::{merge, without_repeated_uses};
+use crate::prelude::{self, merge, without_repeated_uses};
 use crate::{base_name, builtin, push_file, stem, user_natives, Read, Source};
 
 /// What `load` read: every file, and the modules parsed from them.
@@ -89,6 +89,7 @@ pub(crate) fn load(path: &str, src: &str, read: Read) -> Loaded {
         }
         i += 1;
     }
+    prelude::add(&mut l.files, &mut modules, next_expr, next_bind, &mut l.diags);
     Loaded { files: l.files, modules, first_file: l.first_file, diags: l.diags, missing: l.missing, builtins: l.builtins }
 }
 
@@ -311,9 +312,11 @@ mod tests {
         let l = load("game/main.kes", "use net.packet\nuse net.wire\nmain() {}\n", &read);
         assert!(l.diags.is_empty() && l.missing.is_empty(), "{:?} {:?}", l.diags, l.missing);
         let names: Vec<(&str, &str)> = l.files.iter().map(|f| (f.module.as_str(), f.file.as_str())).collect();
-        assert_eq!(names, [("main", "main.kes"), ("net.packet", "net/packet.kes"), ("net.wire", "net/wire.kes")]);
+        // The prelude comes last, a file of the entry file's module (see `prelude`).
+        assert_eq!(names, [("main", "main.kes"), ("net.packet", "net/packet.kes"), ("net.wire", "net/wire.kes"), ("main", "prelude.kes")]);
         assert_eq!(l.modules[0].resolved, [Some(1), Some(2)]);
-        assert_eq!(l.modules[1].resolved, [Some(2)]);
+        // Each other module also gets the prelude's `use`, which names the entry file's module.
+        assert_eq!(l.modules[1].resolved, [Some(2), Some(0)]);
         // Each file keeps the path it was reached by, for its diagnostics.
         assert_eq!(l.files[1].path.replace('\\', "/"), "game/net/packet.kes");
     }
@@ -331,6 +334,7 @@ mod tests {
             ("geom.kes", "geom", "geom.kes"),
             // `FakeNet`'s `Rng`.
             ("<builtin>/random.kes", "random", "random.kes"),
+            ("<builtin>/prelude.kes", "main", "prelude.kes"),
         ]);
         assert!(l.files[1..5].iter().all(|f| f.builtin));
         // One module: the entry's and `geom`'s clauses both name it, by module index, and `geom`
@@ -339,15 +343,17 @@ mod tests {
         assert_eq!(l.modules.len(), 4);
         assert_eq!(l.first_file, [0, 1, 5, 6]);
         assert_eq!(l.modules[0].resolved, [Some(1), Some(2)]);
-        assert_eq!(l.modules[1].resolved, [Some(3)]);
-        assert_eq!(l.modules[2].resolved, [Some(1)]);
+        assert_eq!(l.modules[1].resolved, [Some(3), Some(0)]);
+        assert_eq!(l.modules[2].resolved, [Some(1), Some(0)]);
         assert_eq!((l.modules[1].name.as_str(), l.modules[2].name.as_str(), l.modules[3].name.as_str()), ("rollback", "geom", "random"));
         assert_eq!(l.builtins, ["rollback", "random"]);
         // Its items are every part's, and its ids count to the last part's.
         let rollback = &l.modules[1];
         let names: Vec<&str> = rollback.program.items.iter().filter_map(|i| if let Item::Struct(s) = i { Some(s.name.as_str()) } else { None }).collect();
         assert_eq!(names, ["Input", "Packet", "Session", "Replay", "FakeNet"]);
-        let counts = l.files[1..5].iter().fold((l.modules[0].program.expr_count, l.modules[0].program.bind_count), |(e, b), f| {
+        // From the entry file's own counts: its module's are the prelude's, which is parsed last.
+        let (entry, _) = parse_at(&l.files[0].src, 0, 0, 0);
+        let counts = l.files[1..5].iter().fold((entry.expr_count, entry.bind_count), |(e, b), f| {
             let (p, _) = parse_at(&f.src, f.base, e, b);
             (p.expr_count, p.bind_count)
         });

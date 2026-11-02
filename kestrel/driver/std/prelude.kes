@@ -1,0 +1,22 @@
+// The prelude: what every Kestrel file sees without a `use`. It is not a module, so no `use` can
+// name it, and its names are reserved.
+//
+// `Result[T, E]` is a value of type `T` or an error of type `E`, for code that can fail and should
+// say why. Build one with `Result.Ok(value: v)` or `Result.Err(error: e)`; where a `Result[T, E]`
+// is expected, a `T` goes in as `Result.Ok(value: v)` by itself. Read one with `match`:
+//
+//     load(name: string) -> Result[int, string] {
+//         if name == "" {
+//             return Result.Err(error: "no name")
+//         }
+//         name.len
+//     }
+//
+//     match load("cave") {
+//         Ok o { print(o.value) }
+//         Err e { print(e.error) }
+//     }
+pub enum Result[T, E] {
+    Ok { value: T }
+    Err { error: E }
+}

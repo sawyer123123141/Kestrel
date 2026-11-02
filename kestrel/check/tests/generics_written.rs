@@ -1,5 +1,5 @@
 //! Generics used with their types written (G8): `best[Enemy](foes)`, `Stack[int]()`,
-//! `Result[int, string].Ok(..)`, `Maybe[int].Nothing`, `let f = best[Enemy]`.
+//! `Outcome[int, string].Ok(..)`, `Maybe[int].Nothing`, `let f = best[Enemy]`.
 
 use kestrel_check::{check_keeping_tables, Res, Tables, Ty};
 use kestrel_syntax::ast::{Block, Expr, ExprId, ExprKind, Item, Program};
@@ -69,12 +69,12 @@ fn type_args(t: &Tables, e: ExprId) -> Vec<String> {
     t.ty_list(*list).iter().map(|&ty| t.ty_name(ty)).collect()
 }
 
-const DECLS: &str = "struct Stack[T] {\n    items: list[T] = []\n}\nenum Result[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\nenum Maybe[T] {\n    Nothing\n    Just { value: T }\n}\nstruct Enemy {\n    hp: int\n}\npure best[T](xs: list[T], score: pure (T) -> int) -> T? { none }\n";
+const DECLS: &str = "struct Stack[T] {\n    items: list[T] = []\n}\nenum Outcome[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\nenum Maybe[T] {\n    Nothing\n    Just { value: T }\n}\nstruct Enemy {\n    hp: int\n}\npure best[T](xs: list[T], score: pure (T) -> int) -> T? { none }\n";
 
 #[test]
 fn written_types_are_recorded() {
     let src = format!(
-        "{DECLS}let RULE = best[int]\nlet EMPTY = Stack[int]()\nmain() {{\n    let foes: list[Enemy] = []\n    let b = best[Enemy](foes, (e) {{ e.hp }})\n    let s = Stack[int](items: [1])\n    let r = Result[int, string].Ok(value: 3)\n    let m = Maybe[int].Nothing\n    let f = best[Enemy]\n}}\n"
+        "{DECLS}let RULE = best[int]\nlet EMPTY = Stack[int]()\nmain() {{\n    let foes: list[Enemy] = []\n    let b = best[Enemy](foes, (e) {{ e.hp }})\n    let s = Stack[int](items: [1])\n    let r = Outcome[int, string].Ok(value: 3)\n    let m = Maybe[int].Nothing\n    let f = best[Enemy]\n}}\n"
     );
     let (p, t) = clean(&src);
     let ty = |e: ExprId| t.ty_name(t.ty(e));
@@ -97,7 +97,7 @@ fn written_types_are_recorded() {
     assert_eq!(type_args(&t, construct), ["int"]);
 
     let ok = the(&p, |e| matches!(&e.kind, ExprKind::MethodCall { name, .. } if name == "Ok"));
-    assert_eq!(ty(ok), "Result[int, string]");
+    assert_eq!(ty(ok), "Outcome[int, string]");
     assert!(matches!(t.res.get(&ok), Some(Res::Variant(_, 0))), "{:?}", t.res.get(&ok));
     assert_eq!(type_args(&t, ok), ["int", "string"]);
 
@@ -125,7 +125,7 @@ fn a_constant_can_not_call_a_generic_function() {
     assert_eq!(errs.len(), 1, "{errs:?}");
     assert!(errs[0].starts_with("constants can only use"), "{errs:?}");
     // A written construction and an enum value are constants.
-    clean(&format!("{DECLS}let A = Stack[int]()\nlet B = Maybe[int].Nothing\nlet C = Result[int, string].Ok(value: 1)\nmain() {{}}\n"));
+    clean(&format!("{DECLS}let A = Stack[int]()\nlet B = Maybe[int].Nothing\nlet C = Outcome[int, string].Ok(value: 1)\nmain() {{}}\n"));
 }
 
 #[test]
@@ -149,12 +149,12 @@ fn type_calls_as_statements() {
 #[test]
 fn counts_and_plain_names() {
     let errs = errors(&format!(
-        "{DECLS}main() {{\n    let a = Result[int].Ok(value: 1)\n    let b = best[int, int]\n    let c = Enemy[int](hp: 1)\n    let d = Enemy[int]\n    let e = Stack[int, int]()\n    let f = Maybe[int, int].Nothing\n}}\n"
+        "{DECLS}main() {{\n    let a = Outcome[int].Ok(value: 1)\n    let b = best[int, int]\n    let c = Enemy[int](hp: 1)\n    let d = Enemy[int]\n    let e = Stack[int, int]()\n    let f = Maybe[int, int].Nothing\n}}\n"
     ));
     assert_eq!(
         errs,
         [
-            "`Result` takes 2 types, found 1",
+            "`Outcome` takes 2 types, found 1",
             "`best` takes 1 type, found 2",
             "`Enemy` takes no types",
             "`Enemy` takes no types",
@@ -166,13 +166,13 @@ fn counts_and_plain_names() {
 
 #[test]
 fn a_type_is_not_a_value() {
-    let errs = errors(&format!("{DECLS}main() {{\n    let a = Stack[int]\n    let b = Result[int, string]\n    let c = Maybe[int]\n}}\n"));
+    let errs = errors(&format!("{DECLS}main() {{\n    let a = Stack[int]\n    let b = Outcome[int, string]\n    let c = Maybe[int]\n}}\n"));
     // An enum is built from a variant: its first one is the example.
     assert_eq!(
         errs,
         [
             "`Stack[int]` is a type; build one with `Stack[int](...)`",
-            "`Result[int, string]` is a type; build one with `Result[int, string].Ok(...)`",
+            "`Outcome[int, string]` is a type; build one with `Outcome[int, string].Ok(...)`",
             "`Maybe[int]` is a type; build one with `Maybe[int].Nothing`",
         ]
     );
@@ -181,7 +181,7 @@ fn a_type_is_not_a_value() {
 #[test]
 fn nothing_is_decided_without_written_types() {
     let errs = errors(&format!(
-        "{DECLS}pure make_empty[T]() -> list[T] {{ list[T]() }}\npair[A, B](a: A) {{ }}\nmain() {{\n    let a = make_empty()\n    pair(1)\n    let s = Stack()\n    let m = Maybe.Nothing\n    let r = Result.Ok(value: 1)\n    let f = best\n}}\n"
+        "{DECLS}pure make_empty[T]() -> list[T] {{ list[T]() }}\npair[A, B](a: A) {{ }}\nmain() {{\n    let a = make_empty()\n    pair(1)\n    let s = Stack()\n    let m = Maybe.Nothing\n    let r = Outcome.Ok(value: 1)\n    let f = best\n}}\n"
     ));
     assert_eq!(
         errs,
@@ -190,7 +190,7 @@ fn nothing_is_decided_without_written_types() {
             "can't tell what `B` is in `pair`; write it, like `pair[int, int](...)`",
             "can't tell what `T` is in `Stack`; write it, like `Stack[int]()`",
             "can't tell what `T` is in `Maybe`; write it, like `Maybe[int].Nothing`",
-            "can't tell what `E` is in `Result`; write it, like `Result[int, int].Ok(...)`",
+            "can't tell what `E` is in `Outcome`; write it, like `Outcome[int, int].Ok(...)`",
             "`best` is generic; give its types to use it as a value, like `best[int]`",
         ]
     );

@@ -89,7 +89,8 @@ fn a_second_spelling_of_a_modules_name_leads_to_its_file() {
     let path = dir.join("main.kes");
     let a = analyze(&path.to_string_lossy(), main, true, &|p: &Path| std::fs::read_to_string(p).ok());
     assert!(a.diags.is_empty(), "{:?}", a.diags);
-    assert_eq!(a.sources.len(), 2);
+    // One `packet`, then the prelude.
+    assert_eq!(a.sources.len(), 3);
     let second = main.find("net.packet").unwrap() as u32 + 1;
     let m = resolve(&a, second).expect("the module");
     assert_eq!(a.source_at(m.def.unwrap().start), 1);

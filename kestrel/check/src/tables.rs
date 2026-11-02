@@ -316,6 +316,8 @@ pub struct Tables {
     pub wrapped_literals: HashMap<ExprId, i64>,
     /// Placeholders, type lists, instances and copies (see `generic`).
     pub generic: Generics,
+    /// The prelude's `Result[T, E]` (see `is_prelude_result`), once `collect` has found it.
+    pub result: Option<EnumId>,
     /// Stores into `var` parameters, for `var_stores::resolve` (P38); empty once checking ends.
     pub var_stores: crate::var_stores::VarStores,
 }
@@ -349,4 +351,27 @@ impl Tables {
     pub fn in_builtin(&self, span: Span) -> bool {
         self.builtin_ranges.iter().any(|r| r.contains(&span.start))
     }
+
+    /// `T` and `E` of `ty` when it is a `Result[T, E]`: an instance of the prelude's `Result`.
+    pub fn result_parts(&self, ty: Ty) -> Option<(Ty, Ty)> {
+        let Ty::Enum(id) = ty else { return None };
+        let instance = self.enm(id).instance?;
+        if Some(instance.def) != self.result {
+            return None;
+        }
+        match *self.ty_list(instance.args) {
+            [value, error] => Some((value, error)),
+            _ => None,
+        }
+    }
+}
+
+/// The name of the prelude's `Result`, which no other type, placeholder or item may take.
+pub(crate) const RESULT: &str = "Result";
+
+/// Whether the item `name`, declared at `span`, is the prelude's `Result`: the prelude's items
+/// keep their own names when linked (see `kestrel_driver`'s `prelude`), and every other built-in
+/// item is named `module.name`, so it is the one built-in item of that name.
+pub(crate) fn is_prelude_result(name: &str, span: Span, builtin_ranges: &[std::ops::Range<u32>]) -> bool {
+    name == RESULT && builtin_ranges.iter().any(|r| r.contains(&span.start))
 }

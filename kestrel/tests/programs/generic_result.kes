@@ -1,4 +1,4 @@
-enum Result[T, E] {
+enum Outcome[T, E] {
     Ok { value: T }
     Err { error: E }
 
@@ -20,14 +20,14 @@ struct Level {
     size: int
 }
 
-load(name: string) -> Result[Level, string] {
+load(name: string) -> Outcome[Level, string] {
     if name == "cave" {
-        return Result.Ok(value: Level(name: name, size: 3))
+        return Outcome.Ok(value: Level(name: name, size: 3))
     }
-    Result.Err(error: "no level {name}")
+    Outcome.Err(error: "no level {name}")
 }
 
-pure unwrap_or[T, E](r: Result[T, E], d: T) -> T {
+pure unwrap_or[T, E](r: Outcome[T, E], d: T) -> T {
     match r {
         Ok o { o.value }
         Err { d }
@@ -43,9 +43,9 @@ main() {
         Ok r { print(r.value.size) }
         Err e { print(e.error) }
     }
-    let three = Result[int, string].Ok(value: 3)
+    let three = Outcome[int, string].Ok(value: 3)
     print(three, three.is_ok())
-    let bad: Result[int, string] = Result.Err(error: "nope")
+    let bad: Outcome[int, string] = Outcome.Err(error: "nope")
     print(unwrap_or(three, 0), unwrap_or(bad, -1), bad.is_ok())
     let m: Maybe[int] = Maybe.Nothing
     let n = Maybe[int].Nothing
@@ -54,6 +54,6 @@ main() {
 }
 // expect: 3
 // expect: no level sky
-// expect: Result[int, string].Ok(value: 3) true
+// expect: Outcome[int, string].Ok(value: 3) true
 // expect: 3 -1 false
 // expect: Maybe[int].Nothing Maybe[int].Nothing Maybe[int].Just(value: 5)

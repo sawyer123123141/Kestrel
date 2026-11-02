@@ -51,7 +51,7 @@ fn shown_value(e: &Expr) -> String {
 
 impl<'a> BodyChecker<'a> {
     /// The interface `to` is, or an optional of, when a concrete `from` converts to it.
-    fn iface_target(&self, from: Ty, to: Ty) -> Option<IfaceId> {
+    pub(super) fn iface_target(&self, from: Ty, to: Ty) -> Option<IfaceId> {
         let i = match to {
             Ty::Iface(i) => i,
             Ty::Optional(e) => match self.t.elem(e) {
@@ -84,10 +84,16 @@ impl<'a> BodyChecker<'a> {
         if !matches!(self.t.ty(e.id), Ty::Struct(_) | Ty::Enum(_) | Ty::Param(_)) || self.t.iface_borrows.contains(&e.id) {
             return false;
         }
-        match self.t.coerce.get(&e.id) {
-            Some(Ty::Iface(_)) => true,
-            Some(Ty::Optional(x)) => matches!(self.t.elem(*x), Ty::Iface(_)),
-            _ => false,
+        self.t.coerce.get(&e.id).is_some_and(|&to| self.boxes_into(to))
+    }
+
+    /// Whether a value converted to `to` is boxed as an interface value: `to` is an interface, its
+    /// optional, or a `Result` whose `T` is one of those (the `Ok` wrap converts to `T` first).
+    fn boxes_into(&self, to: Ty) -> bool {
+        match to {
+            Ty::Iface(_) => true,
+            Ty::Optional(x) => matches!(self.t.elem(x), Ty::Iface(_)),
+            other => self.t.result_parts(other).is_some_and(|(value, _)| matches!(value, Ty::Iface(_) | Ty::Optional(_)) && self.boxes_into(value)),
         }
     }
 
@@ -96,7 +102,7 @@ impl<'a> BodyChecker<'a> {
     /// owning one may be passed. Anything else converts as a store would (boxed), and an owning
     /// one that isn't a place is refused.
     pub(super) fn check_arg_value(&mut self, e: &Expr, want: Ty) -> Ty {
-        let found = self.check_expr(e, Some(want));
+        let found = self.check_expr(e, self.ok_hint(e, Some(want)));
         self.finish_arg_value(e, found, want)
     }
 

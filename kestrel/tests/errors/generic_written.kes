@@ -1,7 +1,7 @@
 struct Stack[T] {
     items: list[T] = []
 }
-enum Result[T, E] {
+enum Outcome[T, E] {
     Ok { value: T }
     Err { error: E }
 }
@@ -13,22 +13,22 @@ pure make_empty[T]() -> list[T] { list[T]() }
 main() {
     let f = best
     let s = Stack[int]
-    let r = Result[int].Ok(value: 1)
+    let r = Outcome[int].Ok(value: 1)
     let n = best[int, int]
     let e = make_empty()
     let o = Stack[int?]()
     let x = Enemy[int](hp: 1)
-    let a = Result[int, string]
+    let a = Outcome[int, string]
     let i = 0
     let y = top_scores[i]
 }
 pure top_scores() -> list[int] { [1] }
 // error 14: `best` is generic; give its types to use it as a value, like `best[int]`
 // error 15: `Stack[int]` is a type; build one with `Stack[int](...)`
-// error 16: `Result` takes 2 types, found 1
+// error 16: `Outcome` takes 2 types, found 1
 // error 17: `best` takes 1 type, found 2
 // error 18: can't tell what `T` is in `make_empty`; write it, like `make_empty[int](...)`
 // error 19: `int?` is an optional, so it can't be `T` yet; hold it in a struct field instead
 // error 20: `Enemy` takes no types
-// error 21: `Result[int, string]` is a type; build one with `Result[int, string].Ok(...)`
+// error 21: `Outcome[int, string]` is a type; build one with `Outcome[int, string].Ok(...)`
 // error 23: `top_scores` takes no types

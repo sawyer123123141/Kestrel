@@ -10,7 +10,7 @@ use kestrel_syntax::{Diagnostic, Span};
 
 use crate::collect::BUILTINS;
 use crate::generic::{GenericOwner, ParamId, ParamInfo};
-use crate::tables::{EnumId, FnId, IfaceId, StructId, Tables, BUILTIN_STRUCTS};
+use crate::tables::{EnumId, FnId, IfaceId, StructId, Tables, BUILTIN_STRUCTS, RESULT};
 
 /// The three built-in rules. They are words only in a rule list.
 const RULE_WORDS: [&str; 3] = ["equatable", "ordered", "key"];
@@ -68,7 +68,7 @@ pub(crate) fn declare_fn_params(f: &FnDecl, id: FnId, t: &mut Tables, diags: &mu
 fn register(decls: &[TypeParam], owner: GenericOwner, t: &mut Tables, diags: &mut Vec<Diagnostic>) -> Vec<ParamId> {
     let mut ids = Vec::with_capacity(decls.len());
     for (index, decl) in decls.iter().enumerate() {
-        if let Some(msg) = name_error(&decl.name, &decls[..index], t) {
+        if let Some(msg) = name_error(&decl.name, &decls[..index], t, t.in_builtin(decl.span)) {
             diags.push(Diagnostic::error(decl.span, msg));
         }
         ids.push(ParamId(t.generic.params.len() as u32));
@@ -87,15 +87,18 @@ fn register(decls: &[TypeParam], owner: GenericOwner, t: &mut Tables, diags: &mu
 }
 
 /// What is wrong with a placeholder's name, if anything: it starts with a capital letter (G3),
-/// isn't the own name of a type (P13, G16) and isn't listed twice.
-fn name_error(name: &str, earlier: &[TypeParam], t: &Tables) -> Option<String> {
+/// isn't `Result` or the own name of a type (P13, G16) and isn't listed twice. `builtin` is
+/// whether it is declared in a built-in module.
+fn name_error(name: &str, earlier: &[TypeParam], t: &Tables, builtin: bool) -> Option<String> {
     let own = |n: &String| n.rsplit('.').next() == Some(name);
     if !name.starts_with(char::is_uppercase) {
         Some("a placeholder's name starts with a capital letter, like `T` or `Item`".to_string())
+    } else if name == RESULT {
+        Some(format!("`{RESULT}` is a built-in type; pick another name"))
     } else if (BUILTINS.contains(&name) && name != "print")
-        || t.struct_by_name.keys().any(own)
-        || t.enum_by_name.keys().any(own)
-        || t.iface_by_name.keys().any(own)
+        // A built-in module's placeholder (the prelude's `T` and `E`) isn't checked against the
+        // user's types: a user's `struct T` must not refuse it.
+        || (!builtin && (t.struct_by_name.keys().any(own) || t.enum_by_name.keys().any(own) || t.iface_by_name.keys().any(own)))
     {
         Some(format!("`{name}` is already a type, so it can't be a placeholder's name; pick another, like `T`"))
     } else if earlier.iter().any(|e| e.name == name) {

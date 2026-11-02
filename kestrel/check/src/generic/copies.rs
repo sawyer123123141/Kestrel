@@ -237,6 +237,8 @@ impl<'a> Walk<'a> {
             Ty::Optional(e) => t.elem(e),
             other => other,
         };
+        // An `Ok` wrap converts to the `Result`'s `T` first.
+        let target = self.t.result_parts(target).map_or(target, |(value, _)| value);
         let Ty::Iface(i) = unwrap(self.t, target) else { return Ok(()) };
         let src = unwrap(self.t, src);
         let names: Vec<String> = self.t.iface(i).methods.iter().map(|&m| self.t.func(m).name.rsplit('.').next().unwrap_or_default().to_string()).collect();

@@ -108,7 +108,8 @@ mod tests {
         let read = |p: &Path| (p.file_name()? == "geom.kes").then(|| "pub area(w: int) -> int {\n    w * w\n}\n".to_string());
         let a = analyze("dir/main.kes", "use geom\nmain() {\n    print(geom.area(2))\n}\n", true, &read);
         assert!(a.diags.is_empty(), "{:?}", a.diags);
-        assert_eq!(a.sources.len(), 2);
+        // The entry file, `geom` and the prelude.
+        assert_eq!(a.sources.len(), 3);
         assert!(a.sources[1].path.ends_with("geom.kes"));
         assert_eq!(a.source_at(a.sources[1].base + 3), 1);
         assert_eq!(a.uses[0].len(), 1);

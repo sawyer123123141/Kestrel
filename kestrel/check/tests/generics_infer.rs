@@ -74,7 +74,7 @@ fn type_args(t: &Tables, e: ExprId) -> Vec<String> {
     t.ty_list(*list).iter().map(|&ty| t.ty_name(ty)).collect()
 }
 
-const DECLS: &str = "struct Stack[T] {\n    items: list[T] = []\n}\nstruct Pair[A, B] {\n    a: A\n    b: B\n}\nenum Maybe[T] {\n    Nothing\n    Just { value: T }\n}\nenum Result[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\npure pick[T](a: T, b: T) -> T { b }\npure make[T](f: pure () -> T) -> T { f() }\npure apply[T, R](x: T, f: pure (T) -> R) -> R { f(x) }\npure first_or[T](xs: list[T], d: T?) -> T? { d }\npure count[T](xs: list[T]) -> int { xs.len }\npure both[T](a: list[T], b: list[T]) -> int { a.len + b.len }\npure push_all[T](var xs: list[T], v: T) { xs.add(v) }\nload() -> Result[int, string] {\n    return Result.Ok(value: 3)\n}\n";
+const DECLS: &str = "struct Stack[T] {\n    items: list[T] = []\n}\nstruct Pair[A, B] {\n    a: A\n    b: B\n}\nenum Maybe[T] {\n    Nothing\n    Just { value: T }\n}\nenum Outcome[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\npure pick[T](a: T, b: T) -> T { b }\npure make[T](f: pure () -> T) -> T { f() }\npure apply[T, R](x: T, f: pure (T) -> R) -> R { f(x) }\npure first_or[T](xs: list[T], d: T?) -> T? { d }\npure count[T](xs: list[T]) -> int { xs.len }\npure both[T](a: list[T], b: list[T]) -> int { a.len + b.len }\npure push_all[T](var xs: list[T], v: T) { xs.add(v) }\nload() -> Outcome[int, string] {\n    return Outcome.Ok(value: 3)\n}\n";
 
 #[test]
 fn values_decide() {
@@ -121,8 +121,8 @@ fn the_expected_type_fills_only() {
 
 #[test]
 fn the_expected_type_never_changes_a_decided_placeholder() {
-    let errs = errors(&format!("{DECLS}main() {{\n    let f: Stack[float] = Stack(items: [1, 2])\n    let r: Result[float, string] = Result.Ok(value: 3)\n}}\n"));
-    assert_eq!(errs, ["expected Stack[float], found Stack[int]", "expected Result[float, string], found Result[int, string]"]);
+    let errs = errors(&format!("{DECLS}main() {{\n    let f: Stack[float] = Stack(items: [1, 2])\n    let r: Outcome[float, string] = Outcome.Ok(value: 3)\n}}\n"));
+    assert_eq!(errs, ["expected Stack[float], found Stack[int]", "expected Outcome[float, string], found Outcome[int, string]"]);
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn a_generic_passes_its_var_parameter_on() {
 #[test]
 fn what_cannot_be_told() {
     let errs = errors(&format!(
-        "{DECLS}pure make_empty[T]() -> list[T] {{ list[T]() }}\npair_of[A, B](a: A) {{ }}\nmain() {{\n    let a = make_empty()\n    pair_of(1)\n    let s = Stack()\n    let t = Stack(items: [])\n    let m = Maybe.Nothing\n    let r = Result.Ok(value: 1)\n    let q = apply(1, (x) {{ }})\n    let u = make((x) {{ 1 }})\n}}\n"
+        "{DECLS}pure make_empty[T]() -> list[T] {{ list[T]() }}\npair_of[A, B](a: A) {{ }}\nmain() {{\n    let a = make_empty()\n    pair_of(1)\n    let s = Stack()\n    let t = Stack(items: [])\n    let m = Maybe.Nothing\n    let r = Outcome.Ok(value: 1)\n    let q = apply(1, (x) {{ }})\n    let u = make((x) {{ 1 }})\n}}\n"
     ));
     assert_eq!(
         errs,
@@ -268,7 +268,7 @@ fn what_cannot_be_told() {
             "can't tell what `T` is in `Stack`; write it, like `Stack[int]()`",
             "can't tell what `T` is in `Stack`; write it, like `Stack[int]()`",
             "can't tell what `T` is in `Maybe`; write it, like `Maybe[int].Nothing`",
-            "can't tell what `E` is in `Result`; write it, like `Result[int, int].Ok(...)`",
+            "can't tell what `E` is in `Outcome`; write it, like `Outcome[int, int].Ok(...)`",
             "can't tell what `R` is in `apply`; write it, like `apply[int, int](...)`",
             "this closure takes 1 parameter, but `pure () -> T` takes no parameters",
         ]

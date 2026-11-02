@@ -1,0 +1,16 @@
+// A program's own types named `T` and `E` don't meet the prelude's placeholders of those names.
+struct T {
+    n: int
+}
+
+enum E {
+    A
+    B
+}
+
+main() {
+    let r: Result[T, E] = T(n: 1)
+    let s = Result[E, T].Ok(value: E.B)
+    print(r, s)
+}
+// expect: Result[T, E].Ok(value: T(n: 1)) Result[E, T].Ok(value: E.B)

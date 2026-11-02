@@ -1,0 +1,101 @@
+// `Result[T, E]` is built in (the prelude): every file sees it without a `use`. Where a
+// `Result[T, E]` is expected, a value that converts to `T` goes in as `Result.Ok(value: v)`:
+// converted to `T` first (a widening, an optional, an interface the type lists), then wrapped.
+interface Shape {
+    pure area(self) -> int
+}
+
+struct Square: Shape {
+    side: int
+
+    pure area(self) -> int {
+        self.side * self.side
+    }
+}
+
+struct Holder {
+    r: Result[int, string]
+}
+
+pure show(r: Result[int, string]) -> string {
+    match r {
+        Ok o { "ok {o.value}" }
+        Err e { "err {e.error}" }
+    }
+}
+
+// The last expression goes in as `Ok`.
+pure half(n: int) -> Result[int, string] {
+    if n % 2 != 0 {
+        return Result.Err(error: "{n} is odd")
+    }
+    n / 2
+}
+
+// So does a `return`.
+pure big(n: int) -> Result[int, string] {
+    if n > 10 {
+        return n
+    }
+    Result.Err(error: "{n} is small")
+}
+
+// An `int` widens to `float`, then goes in.
+pure wide(n: int) -> Result[float, string] {
+    n
+}
+
+// In generic code too; `wrap[string]` still gives an `Ok`.
+pure wrap[T](x: T) -> Result[T, string] {
+    x
+}
+
+pure area_of(r: Result[Shape, string]) -> int {
+    match r {
+        Ok o { o.value.area() }
+        Err { -1 }
+    }
+}
+
+main() {
+    print(Result[int, string].Ok(value: 4), Result[int, string].Err(error: "no name"))
+    let a: Result[int, string] = 5
+    print(a)
+    print(show(6))
+    let h = Holder(r: 7)
+    print(h.r)
+    print(half(8), half(3))
+    print(big(11), big(2))
+    print(wide(2))
+    print(wrap(3), wrap("s"))
+    let ok = true
+    let b: Result[int, string] = if ok { 9 } else { Result.Err(error: "no") }
+    print(b)
+    let c: Result[int, string] = match a {
+        Ok o { o.value + 5 }
+        Err e { Result.Err(error: e.error) }
+    }
+    print(c)
+    let rs: list[Result[int, string]] = [1, Result.Err(error: "two"), 3]
+    print(rs)
+    let maybe: Result[int?, string] = 3
+    let nothing: Result[int?, string] = none
+    print(maybe, nothing, Result[int?, string].Ok(value: none))
+    let small: Result[u8, string] = 7
+    print(small)
+    print(area_of(Square(side: 3)))
+}
+// expect: Result[int, string].Ok(value: 4) Result[int, string].Err(error: "no name")
+// expect: Result[int, string].Ok(value: 5)
+// expect: ok 6
+// expect: Result[int, string].Ok(value: 7)
+// expect: Result[int, string].Ok(value: 4) Result[int, string].Err(error: "3 is odd")
+// expect: Result[int, string].Ok(value: 11) Result[int, string].Err(error: "2 is small")
+// expect: Result[float, string].Ok(value: 2)
+// expect: Result[int, string].Ok(value: 3) Result[string, string].Ok(value: "s")
+// expect: Result[int, string].Ok(value: 9)
+// expect: Result[int, string].Ok(value: 10)
+// expect: [Result[int, string].Ok(value: 1), Result[int, string].Err(error: "two"), Result[int, string].Ok(value: 3)]
+// expect: Result[int?, string].Ok(value: 3) Result[int?, string].Ok(value: none) Result[int?, string].Ok(value: none)
+// expect: Result[u8, string].Ok(value: 7)
+// expect: 9

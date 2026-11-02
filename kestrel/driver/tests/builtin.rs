@@ -76,7 +76,8 @@ fn built_in_files_have_virtual_paths_and_never_change() {
     let (compiled, _) = build(&dir, PROGRAM);
     let files = compiled.expect("compiles").files;
     let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().replace('\\', "/")).collect();
-    assert_eq!(paths[1..], ["<builtin>/draw.kes", "<builtin>/input.kes"]);
+    // The prelude comes last; it never changes either.
+    assert_eq!(paths[1..], ["<builtin>/draw.kes", "<builtin>/input.kes", "<builtin>/prelude.kes"]);
     assert!(files[1..].iter().all(|f| f.modified.is_none() && !f.changed()), "{files:?}");
 }
 

@@ -5,7 +5,7 @@ enum Maybe[T] {
     Nothing
     Just { value: T }
 }
-enum Result[T, E] {
+enum Outcome[T, E] {
     Ok { value: T }
     Err { error: E }
 }
@@ -16,7 +16,7 @@ pure count[T](xs: list[T]) -> int { xs.len }
 main() {
     let s = Stack()
     let m = Maybe.Nothing
-    let r = Result.Ok(value: 3)
+    let r = Outcome.Ok(value: 3)
     let p = pick(1, "x")
     var xs: list[int] = [1]
     push_all(var xs, 2.5)
@@ -25,7 +25,7 @@ main() {
 }
 // error 17: can't tell what `T` is in `Stack`; write it, like `Stack[int]()`
 // error 18: can't tell what `T` is in `Maybe`; write it, like `Maybe[int].Nothing`
-// error 19: can't tell what `E` is in `Result`; write it, like `Result[int, int].Ok(...)`
+// error 19: can't tell what `E` is in `Outcome`; write it, like `Outcome[int, int].Ok(...)`
 // error 20: `T` in `pick` can't be both `int` (from `a`) and `string` (from `b`)
 // error 22: `T` in `push_all` can't be both `int` (from `xs`, which must match exactly) and `float` (from `v`)
 // error 23: can't tell what `T` is in `apply`; write it, like `apply[int, int](...)`

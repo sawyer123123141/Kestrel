@@ -292,3 +292,20 @@ fn an_edit_to_a_module_in_a_folder_reloads() {
     s.wait_err("reloaded prog.kes in ");
     follow(&mut s, last, 2, 3, 5);
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "no window on this platform")]
+fn a_result_in_state_survives() {
+    // Its shape is the instance's, `Result[int, string]`, the same after the edit, so the state is
+    // kept: the `Err`'s string is the `frame` each line starts with.
+    let holding = |k: i64| {
+        counter_with(k, "\n    r: Result[int, string]", 0, ", r: Result[int, string].Err(error: \"frame\")")
+            .replace("print(\"frame {s.n}", "print(\"{word(s.r)} {s.n}")
+            + "\nword(r: Result[int, string]) -> string {\n    match r {\n        Ok o { \"ok {o.value}\" }\n        Err e { e.error }\n    }\n}\n"
+    };
+    let mut s = start("result", &holding(2), 100_000, &[]);
+    let last = begin(&mut s, 2, 3);
+    s.edit(&holding(3));
+    s.wait_err("reloaded prog.kes in ");
+    follow(&mut s, last, 2, 3, 5);
+}

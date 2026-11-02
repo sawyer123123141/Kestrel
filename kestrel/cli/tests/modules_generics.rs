@@ -25,7 +25,7 @@ const GEOM: &str = "pub struct Stack[T] {
     push(var self, v: T) { self.items.add(v) }
 }
 
-pub enum Result[T, E] {
+pub enum Outcome[T, E] {
     Ok { value: T }
     Err { error: E }
 }
@@ -77,13 +77,13 @@ main() {
     let items: list[Item] = [Item(id: 4), Item(id: 9)]
     let top = best(items, (i) { i.id }) else { return }
     let low = geom.best[Item](items, (i) { 10 - i.id }) else { return }
-    let r = geom.Result[int, string].Ok(value: 3)
+    let r = geom.Outcome[int, string].Ok(value: 3)
     print(s, t, top.id, low.id, r)
     print(Stack[Item]())
 }
 ";
     let dir = project("modgen_both_ways", &[("main.kes", main), ("geom.kes", GEOM)]);
-    assert_eq!(run_ok(&dir), "Stack[int](items: [1]) Stack[int](items: [2]) 9 4 Result[int, string].Ok(value: 3)\nStack[Item](items: [])\n");
+    assert_eq!(run_ok(&dir), "Stack[int](items: [1]) Stack[int](items: [2]) 9 4 Outcome[int, string].Ok(value: 3)\nStack[Item](items: [])\n");
 }
 
 #[test]
@@ -252,4 +252,24 @@ fn two_modules_with_an_item_of_the_same_name() {
     let main = "use a\nuse b\nuse { Stack from lib }\n\nmain() {\n    print(a.mk(), b.mk(), a.f(), b.f())\n    var s = Stack[int]()\n    s.push(2)\n    print(s)\n}\n";
     let dir = project("modgen_same_item_name", &[("main.kes", main), ("lib.kes", lib), ("a.kes", a), ("b.kes", b)]);
     assert_eq!(run_ok(&dir), "Stack[Item](items: [Item(id: 1)]) Stack[Item](items: [Item(name: \"z\")]) 10 10\nStack[int](items: [2])\n");
+}
+
+#[test]
+fn the_built_in_result_is_one_type_in_every_module() {
+    // Every module sees the prelude's `Result` without a `use`, with its own types inside the
+    // brackets (`Item` there is `geom.Item`), and a `Result[int, string]` made in one module is the
+    // type another writes.
+    let geom = "pub struct Item {\n    id: int\n}\npub load(n: int) -> Result[Item, string] {\n    if n < 0 {\n        return Result.Err(error: \"negative\")\n    }\n    Item(id: n)\n}\npub two() -> Result[Item, string] {\n    Result[Item, string].Ok(value: Item(id: 2))\n}\npub pure label(r: Result[int, string]) -> string {\n    match r {\n        Ok o { \"ok {o.value}\" }\n        Err e { e.error }\n    }\n}\n";
+    let main = "use geom\n\nmain() {\n    let r: Result[geom.Item, string] = geom.load(3)\n    print(r, geom.load(-1), geom.two())\n    let n: Result[int, string] = 4\n    print(geom.label(n), geom.label(Result.Err(error: \"no\")))\n}\n";
+    let dir = project("modgen_prelude_result", &[("main.kes", main), ("geom.kes", geom)]);
+    let want = "Result[Item, string].Ok(value: Item(id: 3)) Result[Item, string].Err(error: \"negative\") Result[Item, string].Ok(value: Item(id: 2))\nok 4 no\n";
+    assert_eq!(run_ok(&dir), want);
+}
+
+#[test]
+fn a_module_can_not_declare_its_own_result() {
+    let geom = "pub enum Result {\n    A\n}\n";
+    let dir = project("modgen_own_result", &[("main.kes", "use geom\nmain() {}\n"), ("geom.kes", geom)]);
+    let err = check_errors(&dir);
+    assert!(err.contains("`Result` is a built-in type; pick another name"), "{err}");
 }

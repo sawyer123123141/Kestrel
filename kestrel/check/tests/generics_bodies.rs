@@ -114,7 +114,7 @@ fn generic_code_is_checked_once() {
 
 #[test]
 fn match_on_a_generic_enum_in_generic_code() {
-    let src = "enum Result[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\npure unwrap_or[T, E](r: Result[T, E], d: T) -> T {\n    match r {\n        Ok o { o.value }\n        Err e { d }\n    }\n}\nmain() {}\n";
+    let src = "enum Outcome[T, E] {\n    Ok { value: T }\n    Err { error: E }\n}\npure unwrap_or[T, E](r: Outcome[T, E], d: T) -> T {\n    match r {\n        Ok o { o.value }\n        Err e { d }\n    }\n}\nmain() {}\n";
     let (p, t) = clean(src);
     assert_eq!(t.ty_name(t.ty(the(&p, "(. o value)"))), "T");
 }

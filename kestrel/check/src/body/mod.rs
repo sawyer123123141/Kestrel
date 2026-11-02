@@ -19,6 +19,7 @@ mod generic_variants;
 mod hex;
 mod iface;
 mod let_else;
+mod ok_wrap;
 mod in_block;
 mod infer;
 mod inferred;
@@ -299,7 +300,7 @@ impl<'a> BodyChecker<'a> {
 
     /// Checks `e` against an expected type, recording a conversion or an error.
     pub(crate) fn check_value(&mut self, e: &Expr, want: Option<Ty>) -> Ty {
-        let found = self.check_expr(e, want);
+        let found = self.check_expr(e, self.ok_hint(e, want));
         self.finish_value(e, found, want)
     }
 
@@ -320,7 +321,7 @@ impl<'a> BodyChecker<'a> {
     /// Like `check_value`, for a block's last expression: an `if` whose
     /// branches all leave early is fine there (the block just diverges).
     pub(crate) fn check_tail(&mut self, e: &Expr, want: Option<Ty>) -> Ty {
-        let found = self.check_expr(e, want);
+        let found = self.check_expr(e, self.ok_hint(e, want));
         match want {
             Some(w) => {
                 self.coerce(e, found, w);
@@ -371,6 +372,10 @@ impl<'a> BodyChecker<'a> {
                 self.t.coerce.insert(e.id, to);
                 return;
             }
+        }
+        // A `T` is a `Result[T, E]` that holds a value.
+        if self.ok_wrap(e, from, to) {
+            return;
         }
         let msg = format!("expected {}, found {}", self.tn(to), self.tn(from));
         if from.is_numeric() && to.is_numeric() && !from.is_float() && !to.is_float() {

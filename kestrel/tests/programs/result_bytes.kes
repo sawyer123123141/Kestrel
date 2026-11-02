@@ -1,0 +1,38 @@
+// A `Result` is an enum like any other: `to_bytes` and `from_bytes` round-trip it, `checksum`
+// reads its contents, `first_difference` names the variant that differs, and a list of results
+// prints each one.
+struct Slot {
+    r: Result[int, string]
+}
+
+main() {
+    let a: Result[int, string] = 5
+    let b = Result[int, string].Err(error: "no name")
+    let a2 = from_bytes[Result[int, string]](to_bytes(a)) else {
+        print("a lost")
+        return
+    }
+    let b2 = from_bytes[Result[int, string]](to_bytes(b)) else {
+        print("b lost")
+        return
+    }
+    print(a2, b2)
+    print(checksum(a2) == checksum(a), checksum(b2) == checksum(b), checksum(a) == checksum(b))
+    print(to_bytes(a).len, to_bytes(b).len)
+    print(first_difference(Slot(r: 1), Slot(r: Result.Err(error: "x"))))
+    print(first_difference(Slot(r: 1), Slot(r: 2)))
+    print(first_difference(Slot(r: 1), Slot(r: 1)))
+    let rs: list[Result[int, string]] = [1, Result.Err(error: "two"), 3]
+    let back = from_bytes[list[Result[int, string]]](to_bytes(rs)) else {
+        print("list lost")
+        return
+    }
+    print(back)
+}
+// expect: Result[int, string].Ok(value: 5) Result[int, string].Err(error: "no name")
+// expect: true true false
+// expect: 21 28
+// expect: r: Ok and Err
+// expect: r.value: 1 and 2
+// expect: none
+// expect: [Result[int, string].Ok(value: 1), Result[int, string].Err(error: "two"), Result[int, string].Ok(value: 3)]
