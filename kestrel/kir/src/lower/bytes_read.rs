@@ -1,12 +1,13 @@
 //! `from_bytes[T](b)`: the value `to_bytes` wrote (see `bytes` and the runtime's `bytes` for the
-//! format), or `none` when the bytes are anything else. A generated function per type,
-//! `__kestrel_from_bytes_N(b: list[u8]) -> T?` (see `bytes_header`), checks the 13-byte header,
-//! reads the value with the functions here, and gives it when the value ends exactly where the
-//! bytes do:
+//! format), or the reason the bytes are anything else. A generated function per type,
+//! `__kestrel_from_bytes_N(b: list[u8]) -> Result[T, string]` (see `bytes_header`), checks the
+//! 13-byte header, reads the value with the functions here, and gives it when the value ends
+//! exactly where the bytes do:
 //!
 //! - `__kestrel_bytes_read_N(src: list[u8], at: i64, var out: T) -> i64` reads a `T` from byte
-//!   `at` of `src` into `out` and gives the byte after it, or -1 when the bytes are wrong. A
-//!   number is one `ReadBytes`; a bool or an optional's byte must be 0 or 1, an enum's variant
+//!   `at` of `src` into `out` and gives the byte after it, or, when the bytes are wrong, a
+//!   negative value holding why and where (`failed`), which a read of a collection inside another
+//!   value passes up unchanged. A number is one `ReadBytes`; a bool or an optional's byte must be 0 or 1, an enum's variant
 //!   number one of its variants. A struct is its fields in order (one bounds check for a struct of
 //!   numbers); an enum's fields and an optional's payload are read into temporaries, then stored
 //!   whole. An array, list or map always goes through its own function, so types that contain
@@ -20,7 +21,7 @@
 //!   must be valid UTF-8 (`ReadBytes` gives the empty string otherwise). A map is built by adding
 //!   each key, and a key already there fails it.
 //!
-//! On `none`, whatever was built so far stays in the current arena until the arena is freed.
+//! On a failure, whatever was built so far stays in the current arena until the arena is freed.
 //! Offsets never overflow: `at` stays between 0 and the input's length, which a list keeps below
 //! `i32::MAX`, so the sums are wrapping and nothing is checked.
 
@@ -68,14 +69,46 @@ pub(super) fn cmp(op: BinOp, a: Expr, b: Expr) -> Expr {
     expr(ExprKind::Binary(op, Box::new(a), Box::new(b)), KTy::Bool)
 }
 
-/// `if cond { return -1 }`
-fn fail_if(cond: Expr) -> Stmt {
-    Stmt::If { cond, then_body: vec![Stmt::Return(Some(int(-1, KTy::I64)))], else_body: Vec::new() }
+/// Why a read fails: the codes the runtime's `kestrel_rt_bytes_reason` turns into the sentences
+/// of the language round's decision 13 (the same numbers as the runtime's `bytes::reason`).
+pub(super) mod why {
+    pub(in crate::lower) const TOO_SHORT: i64 = 1;
+    pub(in crate::lower) const MAGIC: i64 = 2;
+    pub(in crate::lower) const VERSION: i64 = 3;
+    pub(in crate::lower) const SHAPE: i64 = 4;
+    pub(in crate::lower) const END_EARLY: i64 = 5;
+    pub(in crate::lower) const NOT_BOOL: i64 = 6;
+    pub(in crate::lower) const VARIANT: i64 = 7;
+    pub(in crate::lower) const NOT_UTF8: i64 = 8;
+    pub(in crate::lower) const LENGTH: i64 = 9;
+    pub(in crate::lower) const DUP_KEY: i64 = 10;
+    pub(in crate::lower) const TRAILING: i64 = 11;
 }
 
-/// Fails unless `n` more bytes are left after `at`.
+/// How many reason codes fit below the offset in a failed read's value: the code is its low 4
+/// bits.
+pub(super) const CODES: i64 = 16;
+
+/// What a read function gives when the bytes are wrong: `-(at * 16 + code)`, the reason `code`
+/// (one of `why`'s) and the byte `at` where the wrong value starts. An offset stays below
+/// `i32::MAX`, so this never wraps.
+fn failed(code: i64, at: Expr) -> Expr {
+    wrapping(BinOp::SubWrap, int(-code, KTy::I64), wrapping(BinOp::MulWrap, at, int(CODES, KTy::I64)))
+}
+
+/// `if cond { return failed(code, at) }`
+fn fail_if(cond: Expr, code: i64, at: Expr) -> Stmt {
+    Stmt::If { cond, then_body: vec![Stmt::Return(Some(failed(code, at)))], else_body: Vec::new() }
+}
+
+/// Fails, the bytes ending early, unless `n` more bytes are left after `at`.
 fn need(n: Expr) -> Stmt {
-    fail_if(cmp(BinOp::Gt, n, left()))
+    fail_if(cmp(BinOp::Gt, n, left()), why::END_EARLY, at())
+}
+
+/// The byte `n` bytes before `at`: where a value whose first `n` bytes were just read starts.
+fn back(n: i64) -> Expr {
+    wrapping(BinOp::SubWrap, at(), int(n, KTy::I64))
 }
 
 /// The bytes left after `at`.
@@ -93,20 +126,20 @@ fn skip(n: Expr) -> Stmt {
     Stmt::Assign(Place::local(R_AT), wrapping(BinOp::AddWrap, at(), n))
 }
 
-/// The `u32` at `at`, widened, into the local `n`, then past it; fails unless it is at most
-/// `i32::MAX` and that many items of at least `min` bytes fit in the bytes left (any number of
-/// items of 0 bytes do).
+/// The `u32` at `at`, widened, into the local `n`, then past it; fails, naming the length, unless
+/// it is at most `i32::MAX` and that many items of at least `min` bytes fit in the bytes left (any
+/// number of items of 0 bytes do).
 fn count(n: LocalIdx, min: i64) -> Vec<Stmt> {
     let mut out = vec![
         need(int(4, KTy::I64)),
         Stmt::Let(n, expr(ExprKind::Cast(Box::new(read(KTy::I32))), KTy::I64)),
         skip(int(4, KTy::I64)),
         // Read as an `int`, a length past `i32::MAX` is negative.
-        fail_if(cmp(BinOp::Lt, local(n), int(0, KTy::I64))),
+        fail_if(cmp(BinOp::Lt, local(n), int(0, KTy::I64)), why::LENGTH, back(4)),
     ];
     if min > 0 {
         // At most `i32::MAX` items of at most a few thousand bytes: the product fits.
-        out.push(fail_if(cmp(BinOp::Gt, wrapping(BinOp::MulWrap, local(n), int(min, KTy::I64)), left())));
+        out.push(fail_if(cmp(BinOp::Gt, wrapping(BinOp::MulWrap, local(n), int(min, KTy::I64)), left()), why::LENGTH, back(4)));
     }
     out
 }
@@ -135,7 +168,7 @@ impl Frame {
 
 impl Helpers {
     /// Statements that read a value of type `ty` at `at` into the place `p`, move `at` past it, and
-    /// return -1 when the bytes are wrong. `room` says the bytes are known to be there (a struct of
+    /// return why (`failed`) when the bytes are wrong. `room` says the bytes are known to be there (a struct of
     /// numbers checked whole, or an item of a list whose length was checked against its size).
     fn read_stmts(&mut self, fr: &mut Frame, p: Place, ty: KTy, room: bool, list: KTy, t: &Tables) -> Vec<Stmt> {
         let mut out = Vec::new();
@@ -147,7 +180,7 @@ impl Helpers {
                 }
                 let b = || load(Place::local(byte), KTy::U8);
                 out.push(Stmt::Let(byte, read(KTy::U8)));
-                out.push(fail_if(cmp(BinOp::Gt, b(), int(1, KTy::U8))));
+                out.push(fail_if(cmp(BinOp::Gt, b(), int(1, KTy::U8)), why::NOT_BOOL, at()));
                 out.push(Stmt::Assign(p, cmp(BinOp::Ne, b(), int(0, KTy::U8))));
                 out.push(skip(int(1, KTy::I64)));
             }
@@ -164,7 +197,7 @@ impl Helpers {
                 out.extend(count(n, 1));
                 out.push(Stmt::Assign(p.clone(), expr(ExprKind::ReadBytes(src(), vec![at(), local(n)]), KTy::Str)));
                 // Bytes that aren't UTF-8 read as the empty string.
-                out.push(fail_if(cmp(BinOp::Ne, len(&p), local(n))));
+                out.push(fail_if(cmp(BinOp::Ne, len(&p), local(n)), why::NOT_UTF8, back(4)));
                 out.push(skip(local(n)));
             }
             KTy::Struct(s) => {
@@ -185,7 +218,7 @@ impl Helpers {
                 out.push(skip(int(4, KTy::I64)));
                 let below = cmp(BinOp::Lt, local(v), int(0, KTy::I64));
                 let past = cmp(BinOp::Ge, local(v), int(variants.len() as i64, KTy::I64));
-                out.push(fail_if(expr(ExprKind::Or(Box::new(below), Box::new(past)), KTy::Bool)));
+                out.push(fail_if(expr(ExprKind::Or(Box::new(below), Box::new(past)), KTy::Bool), why::VARIANT, back(4)));
                 for (n, variant) in variants.iter().enumerate() {
                     let (mut then_body, mut fields) = (Vec::new(), Vec::new());
                     for f in &variant.fields {
@@ -209,7 +242,7 @@ impl Helpers {
                 let payload = fr.temp("payload", pty);
                 let mut some = self.read_stmts(fr, Place::local(payload), pty, false, list, t);
                 some.push(Stmt::Assign(p.clone(), expr(ExprKind::Some(Box::new(load(Place::local(payload), pty))), ty)));
-                let one = Stmt::If { cond: cmp(BinOp::Eq, b(), int(1, KTy::U8)), then_body: some, else_body: vec![fail_if(expr(ExprKind::Bool(true), KTy::Bool))] };
+                let one = Stmt::If { cond: cmp(BinOp::Eq, b(), int(1, KTy::U8)), then_body: some, else_body: vec![fail_if(expr(ExprKind::Bool(true), KTy::Bool), why::NOT_BOOL, back(1))] };
                 let none = vec![Stmt::Assign(p, expr(ExprKind::NoneLit, ty))];
                 out.push(Stmt::If { cond: cmp(BinOp::Eq, b(), int(0, KTy::U8)), then_body: none, else_body: vec![one] });
             }
@@ -217,7 +250,9 @@ impl Helpers {
                 let f = self.bytes_read_fn(ty, list, t);
                 let args = vec![Arg::Value(load(src(), list)), Arg::Value(at()), Arg::Ref(p)];
                 out.push(Stmt::Assign(Place::local(R_AT), expr(ExprKind::Call(f, args), KTy::I64)));
-                out.push(fail_if(cmp(BinOp::Lt, at(), int(0, KTy::I64))));
+                // A failure inside it already says why and where.
+                let up = vec![Stmt::Return(Some(at()))];
+                out.push(Stmt::If { cond: cmp(BinOp::Lt, at(), int(0, KTy::I64)), then_body: up, else_body: Vec::new() });
             }
             _ => unreachable!("the checker refuses `from_bytes` of a value holding a {ty:?}"),
         }
@@ -225,8 +260,8 @@ impl Helpers {
     }
 
     /// `__kestrel_bytes_read_N(src: list[u8], at: i64, var out: T) -> i64`: reads a `T` from byte
-    /// `at` of `src` (of type `list`, `list[u8]`) into `out`, and gives the byte after it, or -1 when
-    /// the bytes are wrong.
+    /// `at` of `src` (of type `list`, `list[u8]`) into `out`, and gives the byte after it, or why
+    /// the bytes are wrong (`failed`).
     pub(crate) fn bytes_read_fn(&mut self, ty: KTy, list: KTy, t: &Tables) -> FuncIdx {
         if let Some(&f) = self.bytes_read.get(&ty) {
             return f;
@@ -287,6 +322,9 @@ impl Helpers {
             }
             KTy::Map(..) => {
                 let (k, v) = key_value(ty, t);
+                // Where the map starts, for a key it has twice.
+                let start = fr.temp("start", KTy::I64);
+                body.push(Stmt::Let(start, at()));
                 body.extend(count(R_N, min_size(k, t) + min_size(v, t)));
                 body.push(Stmt::Assign(out.clone(), expr(ExprKind::MapNew, ty)));
                 let (key, value, before) = (fr.temp("key", k), fr.temp("value", v), fr.temp("before", KTy::I64));
@@ -295,7 +333,7 @@ impl Helpers {
                 each.push(Stmt::Let(before, len(&out)));
                 each.push(Stmt::MapSet(out.clone(), load(Place::local(key), k), load(Place::local(value), v), false));
                 // A key already there replaced its value instead of adding an entry.
-                each.push(fail_if(cmp(BinOp::Eq, len(&out), local(before))));
+                each.push(fail_if(cmp(BinOp::Eq, len(&out), local(before)), why::DUP_KEY, local(start)));
                 body.push(Stmt::ForRange { var: R_I, start: int(0, KTy::I64), end: n(), body: each });
             }
             _ => body.extend(self.read_stmts(&mut fr, out, ty, false, list, t)),

@@ -41,7 +41,7 @@ pure same[T](x: T) -> bool {
 }
 
 @prove(deterministic, no_panic)
-pub pure load(b: list[u8]) -> Game? {
+pub pure load(b: list[u8]) -> Result[Game, string] {
     from_bytes[Game](b)
 }
 

@@ -115,7 +115,7 @@ fn expr_builds(e: &Expr, calls: &mut Vec<FuncIdx>) -> bool {
             EnvKind::None | EnvKind::Stack(_) => false,
         },
         ExprKind::Str(op, _) => match op {
-            StrOp::At | StrOp::Piece | StrOp::Slice | StrOp::Trim | StrOp::Upper | StrOp::Lower | StrOp::Join | StrOp::Split | StrOp::Hex => true,
+            StrOp::At | StrOp::Piece | StrOp::Slice | StrOp::Trim | StrOp::Upper | StrOp::Lower | StrOp::Join | StrOp::Split | StrOp::Hex | StrOp::BytesReason => true,
             StrOp::Chars | StrOp::CharLen | StrOp::Find | StrOp::Starts | StrOp::Cmp | StrOp::Ends | StrOp::ToInt | StrOp::ToFloat => false,
         },
         ExprKind::Map(op, ..) => match op {

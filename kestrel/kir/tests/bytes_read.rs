@@ -1,17 +1,17 @@
-//! The functions behind `from_bytes[T](b)` (`lower::bytes_read`): a claimed length is checked
-//! against the bytes left before anything is made for it, a map fails on a key it already has, and
-//! each type gets one function however often it is read.
+//! The functions behind `from_bytes[T](b)` (`lower::bytes_read` and `lower::bytes_header`): a
+//! claimed length is checked against the bytes left before anything is made for it, a map fails
+//! on a key it already has, each type gets one function however often it is read, and the reason
+//! the bytes are wrong is made only when they are. The programs go through the driver, which adds
+//! the prelude's `Result` that `from_bytes` gives.
+use kestrel_kir::range::{remove_checks, Arith};
 use kestrel_kir::*;
-use kestrel_syntax::{parse, LineIndex};
 
 mod range_common;
 
 fn lower_src(src: &str) -> Module {
-    let (p, d) = parse(src);
-    assert!(d.is_empty(), "parse: {:?}", d.iter().map(|d| &d.message).collect::<Vec<_>>());
-    let (t, d) = kestrel_check::check(&p);
-    assert!(d.is_empty(), "check: {:?}", d.iter().map(|d| &d.message).collect::<Vec<_>>());
-    lower(&p, &t.unwrap(), &LineIndex::new(src))
+    let (compiled, text) = kestrel_driver::compile_unoptimized("bytes.kes", src, kestrel_driver::DiagStyle::Short, true);
+    compiled.unwrap_or_else(|| panic!("doesn't compile:
+{text}")).module
 }
 
 /// The read function whose value (its third parameter) has a type that `is` accepts.
@@ -44,7 +44,39 @@ fn a_map_fails_on_a_key_it_already_has() {
     let set = body.iter().position(|s| matches!(s, Stmt::MapSet(..))).expect("adding the key");
     let Stmt::If { cond, then_body, .. } = &body[set + 1] else { panic!("the check after adding the key") };
     assert!(matches!(cond.kind, ExprKind::Binary(BinOp::Eq, ..)));
-    assert!(matches!(then_body[..], [Stmt::Return(Some(Expr { kind: ExprKind::Int(-1), .. }))]));
+    // It fails with the duplicate key's reason code (10), the map's first byte packed above it.
+    let [Stmt::Return(Some(Expr { kind: ExprKind::Binary(BinOp::SubWrap, code, _), .. }))] = &then_body[..] else { panic!("{then_body:?}") };
+    assert!(matches!(code.kind, ExprKind::Int(-10)), "{code:?}");
+}
+
+/// How many times `body`, at any depth, holds the string operation that makes a failed read's
+/// reason.
+fn makes_reason(body: &[Stmt]) -> usize {
+    let mut found = 0;
+    visit::walk(body, &mut |n| found += usize::from(matches!(n, visit::Node::Expr(Expr { kind: ExprKind::Str(StrOp::BytesReason, _), .. }))));
+    found
+}
+
+#[test]
+fn the_reason_is_made_once_and_only_on_the_way_out() {
+    let m = lower_src("struct P {
+    xs: list[string]
+    n: int
+}
+main() {
+    let b: list[u8] = []
+    let p = from_bytes[P](b) else { return }
+    print(p.n)
+}
+");
+    let f = m.funcs.iter().find(|f| f.name.starts_with("__kestrel_from_bytes_")).expect("the `from_bytes` function");
+    // One call in the function, inside the `if` that returns the error; none in a read function.
+    assert_eq!(makes_reason(&f.body), 1);
+    let top = f.body.iter().filter(|s| !matches!(s, Stmt::If { .. })).map(|s| makes_reason(std::slice::from_ref(s))).sum::<usize>();
+    assert_eq!(top, 0, "the reason is made outside an `if`");
+    for r in m.funcs.iter().filter(|f| f.name.starts_with("__kestrel_bytes_read_")) {
+        assert_eq!(makes_reason(&r.body), 0, "{}", r.name);
+    }
 }
 
 #[test]
@@ -97,8 +129,13 @@ fn a_list_read_by_growing_cant_hold_too_many_items() {
     let src = "pub load(b: list[u8]) -> int {
     let xs = from_bytes[list[int?]](b) else { return 0 }
     xs.len
-}";
-    let (_, r) = range_common::reported(src, kestrel_kir::range::Arith::Checked);
+}
+main() {}
+";
+    let mut m = lower_src(src);
+    optimize(&mut m);
+    let a = remove_checks(&mut m, Arith::Checked);
+    let r = kestrel_kir::range::report::build(&m, &a);
     let f = range_common::func_report(&r, "load");
     let (allocs, fails) = (range_common::items_of(f, Allocation), range_common::items_of(f, CanFail));
     assert!(allocs.iter().any(|(_, t)| t.contains("makes the lists it reads")), "{allocs:?}");

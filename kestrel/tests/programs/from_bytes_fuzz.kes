@@ -1,6 +1,6 @@
-// `from_bytes` on damaged bytes: every truncation of a value's bytes is `none`, and of 200 random
+// `from_bytes` on damaged bytes: every truncation of a value's bytes is an error, and of 200 random
 // single-byte changes per value (a fixed-seed generator, so the counts below never change), each
-// is either `none` or a value whose own bytes are exactly the changed ones (the format has one
+// is either an error or a value whose own bytes are exactly the changed ones (the format has one
 // way to write each value). Nothing crashes.
 enum Shape {
     Dot

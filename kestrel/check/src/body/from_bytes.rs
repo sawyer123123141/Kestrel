@@ -1,7 +1,9 @@
-//! `from_bytes[T](bytes)`: the value of type `T` that `to_bytes` wrote, or `none`. The type in the
-//! brackets is the only way to say what to read (the parser takes `from_bytes`'s brackets as types,
-//! as it does `list`'s), and it must be one `checksum` can take (see `snapshot`). The value is a
-//! `list[u8]`; the result is a `T?`.
+//! `from_bytes[T](bytes)`: the value of type `T` that `to_bytes` wrote, or the reason the bytes
+//! aren't one (the language round, decision 13). The type in the brackets is the only way to say
+//! what to read (the parser takes `from_bytes`'s brackets as types, as it does `list`'s), and it
+//! must be one `checksum` can take (see `snapshot`). The value is a `list[u8]`; the result is a
+//! `Result[T, string]`, the prelude's `Result` (which may hold an optional, so `from_bytes[int?]`
+//! gives a `Result[int?, string]`).
 
 use kestrel_syntax::ast::{Arg, Expr, TypeExpr};
 use kestrel_syntax::{Diagnostic, Span};
@@ -49,7 +51,13 @@ impl BodyChecker<'_> {
             });
             return Ty::Error;
         }
+        // The driver always adds the prelude; a program checked without it has no `Result`.
+        let Some(result) = self.t.result else {
+            self.error(e.span, "`from_bytes` gives a `Result`, and this program has no prelude to define it");
+            return Ty::Error;
+        };
         self.t.res.insert(e.id, Res::Builtin(Builtin::FromBytes));
-        Ty::Optional(self.t.intern_elem(ty))
+        let args = self.t.intern_ty_list(vec![ty, Ty::Str]);
+        Ty::Enum(self.t.intern_enum(result, args))
     }
 }

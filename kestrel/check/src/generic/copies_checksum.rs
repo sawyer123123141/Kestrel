@@ -39,14 +39,14 @@ impl Walk<'_> {
         self.refuse_in_copy(ty, root, b, span, ctx)
     }
 
-    /// `from_bytes[T](b)`, the expression `id` whose type in this copy is `ty` (a `T?`): the type
-    /// it reads with the copy's types in it can be read.
+    /// `from_bytes[T](b)`, the expression `id` whose type in this copy is `ty` (a
+    /// `Result[T, string]`): the type it reads with the copy's types in it can be read.
     pub(super) fn decode_copy(&mut self, id: ExprId, ty: Ty, span: Span, ctx: Ctx) -> Result<(), Diagnostic> {
         if ctx.subst.is_none() || self.t.is_concrete(self.t.ty(id)) {
             return Ok(());
         }
-        let Ty::Optional(read) = ty else { return Ok(()) };
-        self.refuse_in_copy(self.t.elem(read), None, Builtin::FromBytes, span, ctx)
+        let Some((read, _)) = self.t.result_parts(ty) else { return Ok(()) };
+        self.refuse_in_copy(read, None, Builtin::FromBytes, span, ctx)
     }
 
     /// The error when built-in `b` can't take (or read) a `ty` in this copy, when it can't.

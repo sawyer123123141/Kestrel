@@ -268,6 +268,9 @@ impl Walk<'_> {
             StrOp::Split => (format!("`{}.split({})` makes a new list", text(0), text(1)), "splits a string into a new list".to_string()),
             StrOp::Hex => first_difference_alloc(),
             StrOp::Chars | StrOp::CharLen | StrOp::Find | StrOp::Starts | StrOp::Cmp | StrOp::Ends | StrOp::ToInt | StrOp::ToFloat => return,
+            // `from_bytes` makes its reason only on the way out of a read that failed: a valid read
+            // allocates what it did before, and an error string isn't a value read from the bytes.
+            StrOp::BytesReason => return,
         };
         // Inside `first_difference` (cutting its path's leading `.`), the string is its result.
         let (direct, via) = if self.made_by_first_difference(xs) { first_difference_alloc() } else { (direct, via) };

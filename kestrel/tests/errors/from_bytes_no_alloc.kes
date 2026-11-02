@@ -1,17 +1,17 @@
-// Reading numbers allocates nothing; reading a string makes it in the current arena.
+// Reading numbers allocates nothing (a failed read's reason, made only then, isn't counted); reading a string makes it in the current arena.
 @prove(no_alloc, no_panic)
-pure count(b: list[u8]) -> int? {
+pure count(b: list[u8]) -> Result[int, string] {
     from_bytes[int](b)
 }
 
 @prove(no_alloc)
-pure name(b: list[u8]) -> string? {
+pure name(b: list[u8]) -> Result[string, string] {
     from_bytes[string](b)
 }
 
 // A list of optionals is made as its items are read.
 @prove(no_alloc)
-pure maybes(b: list[u8]) -> list[int?]? {
+pure maybes(b: list[u8]) -> Result[list[int?], string] {
     from_bytes[list[int?]](b)
 }
 

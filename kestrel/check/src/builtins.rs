@@ -42,7 +42,8 @@ pub enum Builtin {
     Checksum,
     /// `to_bytes(x)`: any value `checksum` takes, in the byte format (a `list[u8]`).
     ToBytes,
-    /// `from_bytes[T](b)`: the value of type `T` that `to_bytes` wrote, or `none`.
+    /// `from_bytes[T](b)`: the value of type `T` that `to_bytes` wrote, as a `Result[T, string]`
+    /// whose error says why the bytes aren't one.
     FromBytes,
     /// `first_difference(a, b)`: where two values of one type first differ, or `none`.
     FirstDifference,

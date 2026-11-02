@@ -145,6 +145,10 @@ pub enum StrOp {
     /// `[bits, digits]`: a new string of `0x` and the low `digits` hex digits (upper case) of the
     /// `i64` `bits`, as `first_difference` shows a float's bits (`0x42CE8000`).
     Hex,
+    /// `[code, at, len, name]`: a new string, the sentence saying why `from_bytes` couldn't read a
+    /// `name` (a string) from `len` bytes: the reason `code` (see `lower::bytes_read::why`) at
+    /// byte `at` (all `i64`s). Made only when a read has failed, so it counts for no contract.
+    BytesReason,
 }
 
 /// What `ExprKind::Hash` does: one step of `checksum`'s fold (see the runtime's `checksum`), or a

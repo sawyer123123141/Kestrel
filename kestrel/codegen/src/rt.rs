@@ -31,6 +31,8 @@ pub(crate) struct RtFuncs {
     pub bytes_write_str: FuncId,
     /// Makes a string of bytes `from_bytes` reads, when they are UTF-8.
     pub bytes_read_str: FuncId,
+    /// Makes the sentence saying why `from_bytes` couldn't read its bytes.
+    pub bytes_reason: FuncId,
     pub copy_items: FuncId,
     pub current_arena: FuncId,
     pub panic_index: FuncId,
@@ -131,6 +133,7 @@ impl RtFuncs {
             list_reserve: decl("kestrel_rt_list_reserve", &[ptr, I64, I64, I64], None)?,
             bytes_write_str: decl("kestrel_rt_bytes_write_str", &[ptr, ptr, I64], None)?,
             bytes_read_str: decl("kestrel_rt_bytes_read_str", &[ptr, I64, ptr], Some(I8))?,
+            bytes_reason: decl("kestrel_rt_bytes_reason", &[I64, I64, I64, ptr, I64, ptr], None)?,
             copy_items: decl("kestrel_rt_copy_items", &[ptr, ptr, I64, I64], None)?,
             current_arena: decl("kestrel_rt_current_arena", &[], Some(ptr))?,
             panic_index: decl("kestrel_rt_panic_index", &[I64, I64, I32, ptr], None)?,
@@ -241,6 +244,7 @@ pub(crate) fn jit_symbols() -> Vec<(&'static str, *const u8)> {
         ("kestrel_rt_list_reserve", bytes::kestrel_rt_list_reserve as *const u8),
         ("kestrel_rt_bytes_write_str", bytes::kestrel_rt_bytes_write_str as *const u8),
         ("kestrel_rt_bytes_read_str", bytes::kestrel_rt_bytes_read_str as *const u8),
+        ("kestrel_rt_bytes_reason", bytes::kestrel_rt_bytes_reason as *const u8),
         ("kestrel_rt_current_arena", arena::kestrel_rt_current_arena as *const u8),
         ("kestrel_rt_panic_index", panic::kestrel_rt_panic_index as *const u8),
         ("kestrel_rt_arena_new", arena::kestrel_rt_arena_new as *const u8),

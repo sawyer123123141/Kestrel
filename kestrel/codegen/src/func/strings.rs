@@ -59,6 +59,14 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
             self.call_id(rt.str_hex, &[bits, digits, dest]);
             return Ok(());
         }
+        if op == StrOp::BytesReason {
+            let code = self.str_int(&args[0])?;
+            let at = self.str_int(&args[1])?;
+            let n = self.str_int(&args[2])?;
+            let (name, name_len) = self.str_parts(&args[3])?;
+            self.call_id(rt.bytes_reason, &[code, at, n, name, name_len, dest]);
+            return Ok(());
+        }
         let (ptr, len) = self.str_parts(&args[0])?;
         match op {
             StrOp::At => {
@@ -111,7 +119,7 @@ impl<'a, 'b, M: Module> FuncLowerer<'a, 'b, M> {
                 self.b.ins().store(MemFlagsData::trusted(), value, dest, at);
             }
             StrOp::Chars | StrOp::CharLen | StrOp::Find | StrOp::Starts | StrOp::Ends | StrOp::Cmp => unreachable!("{op:?} is a number"),
-            StrOp::Hex => unreachable!("`Hex` is written above"),
+            StrOp::Hex | StrOp::BytesReason => unreachable!("{op:?} is written above"),
         }
         Ok(())
     }

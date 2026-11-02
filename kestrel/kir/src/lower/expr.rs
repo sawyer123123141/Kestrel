@@ -176,7 +176,7 @@ impl<'a> FnLowerer<'a> {
             }
             ast::ExprKind::Index { base, index } => self.index_value(e, base, index, ty, line),
             ast::ExprKind::ArrayLit(items) => ExprKind::ArrayLit(items.iter().map(|i| self.value(i)).collect()),
-            ast::ExprKind::TypeCall { name, args, .. } if name == "from_bytes" => self.decode_call(&args[0].value, ty),
+            ast::ExprKind::TypeCall { name, args, .. } if name == "from_bytes" => self.decode_call(e, &args[0].value),
             ast::ExprKind::TypeCall { args, .. } => match ty {
                 KTy::Array(_) => ExprKind::ArrayNew(Box::new(self.expr(&args[0].value))),
                 KTy::Map(..) => ExprKind::MapNew,

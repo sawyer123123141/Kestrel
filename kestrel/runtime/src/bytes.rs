@@ -102,6 +102,69 @@ pub unsafe extern "C" fn kestrel_rt_bytes_read_str(src: *const u8, len: i64, out
     i8::from(ok)
 }
 
+/// Why `from_bytes` failed: the codes compiled code passes to `kestrel_rt_bytes_reason` (the same
+/// numbers as `kestrel_kir`'s `lower::bytes_read::why`).
+pub mod reason {
+    /// Fewer bytes than the header.
+    pub const TOO_SHORT: i64 = 1;
+    /// The first four bytes aren't `KESB`.
+    pub const MAGIC: i64 = 2;
+    /// Another format version; `at` is the version the bytes have.
+    pub const VERSION: i64 = 3;
+    /// Another type's fingerprint.
+    pub const SHAPE: i64 = 4;
+    /// A value needs bytes past the end; `at` is where it starts.
+    pub const END_EARLY: i64 = 5;
+    /// A bool's or an optional's byte isn't 0 or 1.
+    pub const NOT_BOOL: i64 = 6;
+    /// An enum's variant number is past its variants.
+    pub const VARIANT: i64 = 7;
+    /// A string's bytes aren't UTF-8.
+    pub const NOT_UTF8: i64 = 8;
+    /// A length is past `i32::MAX` or past what the bytes left can hold.
+    pub const LENGTH: i64 = 9;
+    /// A map has a key twice.
+    pub const DUP_KEY: i64 = 10;
+    /// The value ends before the bytes do; `at` is where it ends.
+    pub const TRAILING: i64 = 11;
+}
+
+/// The sentence `from_bytes` gives for reason `code` (the language round, decision 13): `at` is
+/// the byte the wrong value starts at (from 0; the version for `reason::VERSION`, where the value
+/// ends for `reason::TRAILING`), `len` the input's length, and `name` the type read.
+pub fn reason_text(code: i64, at: i64, len: i64, name: &str) -> String {
+    let bytes = |n: i64| if n == 1 { "1 byte".to_string() } else { format!("{n} bytes") };
+    match code {
+        reason::TOO_SHORT => format!("the bytes are too short to hold a saved value: {}, and the header alone is {HEADER}", bytes(len)),
+        reason::MAGIC => "the bytes aren't a saved value: they don't start with KESB".to_string(),
+        reason::VERSION => format!("the bytes were saved in format {at}, and this Kestrel reads format {VERSION}"),
+        reason::SHAPE => format!("the bytes hold another type, or another shape of `{name}`: a field was added, removed, renamed or changed"),
+        reason::END_EARLY => format!("the bytes end early, at byte {at} of {len}"),
+        reason::NOT_BOOL => format!("byte {at} should be 0 or 1"),
+        reason::VARIANT => format!("the variant number at byte {at} is past the end of its enum"),
+        reason::NOT_UTF8 => format!("the string at byte {at} isn't UTF-8 text"),
+        reason::LENGTH => format!("the length at byte {at} is more than the bytes left can hold"),
+        reason::DUP_KEY => format!("the map at byte {at} has a key twice"),
+        reason::TRAILING => format!("the value ends at byte {at}, but there are {}", bytes(len)),
+        _ => format!("the bytes aren't a saved `{name}`"),
+    }
+}
+
+/// Writes `reason_text` at `out`, as a new string in the current arena; `name` (`name_len` bytes)
+/// is the type read. Compiled code calls it only when a read has failed.
+///
+/// # Safety
+/// `name` must be valid for reading `name_len` bytes of UTF-8 unless `name_len` is 0, and `out`
+/// for writing 16 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn kestrel_rt_bytes_reason(code: i64, at: i64, len: i64, name: *const u8, name_len: i64, out: *mut KStr) {
+    // SAFETY: the caller guarantees `name` for `name_len` bytes.
+    let name = String::from_utf8_lossy(unsafe { KStr::bytes(name, name_len) });
+    let text = reason_text(code, at, len, &name);
+    // SAFETY: the caller guarantees `out`.
+    unsafe { KStr::make(text.as_bytes(), out) };
+}
+
 /// A value for the reference encoder: the shape the byte format sees. A vector is a `Struct` of
 /// its lanes; an array is a `List`.
 #[derive(Clone, Debug, PartialEq)]

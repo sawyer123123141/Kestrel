@@ -1,7 +1,7 @@
 //! `from_bytes[T](b)` reads what the reference encoder in `kestrel_runtime::bytes` writes, and on
-//! damaged bytes it agrees with the reference decoder: `none` exactly when `decode` is `None`, and
-//! otherwise a value whose own bytes are the input. A length a hostile input claims is never
-//! allocated.
+//! damaged bytes it agrees with the reference decoder: an error exactly when `decode` is `None`,
+//! and otherwise a value whose own bytes are the input. A length a hostile input claims is never
+//! allocated, and the error names it.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -169,7 +169,7 @@ fn a_length_the_bytes_cant_hold_is_never_allocated() {
         for (i, (ty, desc, count)) in reads.iter().enumerate() {
             body.push_str(&format!("    let b{i}: list[u8] = {}\n", literal(&claim(desc, *count))));
             if read {
-                body.push_str(&format!("    let r{i} = from_bytes[{ty}](b{i})\n    print(r{i})\n"));
+                body.push_str(&format!("    match from_bytes[{ty}](b{i}) {{\n        Ok {{ print(\"read\") }}\n        Err e {{ print(e.error) }}\n    }}\n"));
             } else {
                 body.push_str(&format!("    print(b{i}.len)\n"));
             }
@@ -178,7 +178,7 @@ fn a_length_the_bytes_cant_hold_is_never_allocated() {
     };
     let read = write("claims", &program(true));
     let (stdout, _) = run(&read, &[]);
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), vec!["none"; reads.len()]);
+    assert_eq!(stdout.lines().collect::<Vec<_>>(), vec!["the length at byte 13 is more than the bytes left can hold"; reads.len()]);
     let with = arena_bytes(&read);
     let without = arena_bytes(&write("claims_control", &program(false)));
     assert!(with <= without + 4096, "reading the claims grew the arena from {without} to {with} bytes");
@@ -207,7 +207,7 @@ fn items_far_bigger_in_memory_than_in_bytes_are_not_made_up_front() {
         for (i, (ty, bytes)) in reads.iter().enumerate() {
             body.push_str(&format!("    let b{i}: list[u8] = {}\n", literal(bytes)));
             if read {
-                body.push_str(&format!("    let r{i} = from_bytes[{ty}](b{i})\n    print(r{i})\n"));
+                body.push_str(&format!("    match from_bytes[{ty}](b{i}) {{\n        Ok {{ print(\"read\") }}\n        Err e {{ print(e.error) }}\n    }}\n"));
             } else {
                 body.push_str(&format!("    print(b{i}.len)\n"));
             }
@@ -216,7 +216,14 @@ fn items_far_bigger_in_memory_than_in_bytes_are_not_made_up_front() {
     };
     let read = write("big_items", &program(true));
     let (stdout, _) = run(&read, &[]);
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), vec!["none"; reads.len()]);
+    // The first item fails: its byte isn't 0 or 1, or its length is past `i32::MAX`.
+    let want = [
+        "the length at byte 13 is more than the bytes left can hold",
+        "byte 17 should be 0 or 1",
+        "byte 17 should be 0 or 1",
+        "the length at byte 17 is more than the bytes left can hold",
+    ];
+    assert_eq!(stdout.lines().collect::<Vec<_>>(), want);
     let with = arena_bytes(&read);
     let without = arena_bytes(&write("big_items_control", &program(false)));
     assert!(with <= without + 4096, "reading the claims grew the arena from {without} to {with} bytes");

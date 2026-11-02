@@ -318,3 +318,32 @@ fn a_string_is_read_when_its_bytes_are_utf8() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn each_reason_is_its_sentence() {
+    let says = |code: i64, at: i64, len: i64| reason_text(code, at, len, "Save");
+    assert_eq!(says(reason::TOO_SHORT, 0, 3), "the bytes are too short to hold a saved value: 3 bytes, and the header alone is 13");
+    assert_eq!(says(reason::TOO_SHORT, 0, 1), "the bytes are too short to hold a saved value: 1 byte, and the header alone is 13");
+    assert_eq!(says(reason::MAGIC, 0, 20), "the bytes aren't a saved value: they don't start with KESB");
+    assert_eq!(says(reason::VERSION, 2, 20), "the bytes were saved in format 2, and this Kestrel reads format 1");
+    assert_eq!(says(reason::SHAPE, 0, 20), "the bytes hold another type, or another shape of `Save`: a field was added, removed, renamed or changed");
+    assert_eq!(says(reason::END_EARLY, 57, 57), "the bytes end early, at byte 57 of 57");
+    assert_eq!(says(reason::NOT_BOOL, 40, 57), "byte 40 should be 0 or 1");
+    assert_eq!(says(reason::VARIANT, 40, 57), "the variant number at byte 40 is past the end of its enum");
+    assert_eq!(says(reason::NOT_UTF8, 40, 57), "the string at byte 40 isn't UTF-8 text");
+    assert_eq!(says(reason::LENGTH, 40, 57), "the length at byte 40 is more than the bytes left can hold");
+    assert_eq!(says(reason::DUP_KEY, 40, 57), "the map at byte 40 has a key twice");
+    assert_eq!(says(reason::TRAILING, 44, 45), "the value ends at byte 44, but there are 45 bytes");
+    // Through the runtime call, as a string in the current arena (a thread of its own, as above).
+    std::thread::spawn(|| {
+        let mut out = crate::string::KStr { ptr: std::ptr::null(), len: 0 };
+        let name = "Game";
+        // SAFETY: `name` has these bytes, and `out` is a string's room.
+        unsafe { kestrel_rt_bytes_reason(reason::SHAPE, 0, 20, name.as_ptr(), name.len() as i64, &mut out) };
+        // SAFETY: the string was just made.
+        let text = unsafe { crate::string::KStr::bytes(out.ptr, out.len) };
+        assert_eq!(std::str::from_utf8(text).unwrap(), reason_text(reason::SHAPE, 0, 20, "Game"));
+    })
+    .join()
+    .unwrap();
+}

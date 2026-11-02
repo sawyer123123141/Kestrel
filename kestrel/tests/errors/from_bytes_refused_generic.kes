@@ -9,7 +9,7 @@ struct Dot: Drawable {
 }
 
 // A generic is judged at each copy: `load[int]` is fine, `load[Drawable]` isn't.
-pure load[T](b: list[u8]) -> list[T]? {
+pure load[T](b: list[u8]) -> Result[list[T], string] {
     from_bytes[list[T]](b)
 }
 

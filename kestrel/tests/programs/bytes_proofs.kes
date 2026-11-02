@@ -1,6 +1,6 @@
 // A function that saves and loads a value with a list, a map and a string proves `no_panic` and
 // `deterministic`: `to_bytes` and `from_bytes` are `pure`, give the same bytes everywhere, and never
-// stop the program (damaged bytes give `none`).
+// stop the program (damaged bytes give an error naming the reason).
 struct Save {
     names: list[string]
     scores: map[string, int]
@@ -8,7 +8,7 @@ struct Save {
 }
 
 @prove(no_panic, deterministic)
-pub pure reload(s: Save) -> Save? {
+pub pure reload(s: Save) -> Result[Save, string] {
     from_bytes[Save](to_bytes(s))
 }
 

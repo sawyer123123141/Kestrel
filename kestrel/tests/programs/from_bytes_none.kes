@@ -1,8 +1,9 @@
-// `from_bytes[T](b)` is `none`, never a crash, for every way the bytes can be wrong: the magic, the
-// version or the fingerprint; bytes that end early or go on after the value; a bool or optional
-// byte that isn't 0 or 1; a variant number past the enum; a string that isn't UTF-8; a length past
-// `i32::MAX` or past what the bytes left could hold (checked before anything is allocated); and a
-// map with a key twice.
+// `from_bytes[T](b)` is an error naming the reason, never a crash, for every way the bytes can be
+// wrong (the language round, decision 13): the magic, the version or the fingerprint; bytes that
+// end early or go on after the value; a bool or optional byte that isn't 0 or 1; a variant number
+// past the enum; a string that isn't UTF-8; a length past `i32::MAX` or past what the bytes left
+// could hold (checked before anything is allocated); and a map with a key twice. An offset is the
+// byte where the value that is wrong starts.
 enum Shape {
     Dot
     Circle { r: float }
@@ -43,6 +44,15 @@ set_count(b: list[u8], at: int, b0: int, b1: int, b2: int, b3: int) -> list[u8] 
     set(set(set(set(b, at, b0), at + 1, b1), at + 2, b2), at + 3, b3)
 }
 
+/// Prints `label`, then the value `r` holds or the reason it doesn't. (An `int?` can't be `T`, so
+/// the two reads of one are matched where they are.)
+show[T](label: string, r: Result[T, string]) {
+    match r {
+        Ok o { print(label, o.value) }
+        Err e { print(label, e.error) }
+    }
+}
+
 /// Whether `b` reads as a `Game`.
 reads_game(b: list[u8]) -> bool {
     let g = from_bytes[Game](b) else { return false }
@@ -51,20 +61,20 @@ reads_game(b: list[u8]) -> bool {
 
 main() {
     let seven = to_bytes(7)
-    print("good:", from_bytes[int](seven))
-    print("magic:", from_bytes[int](set(seven, 0, 0)))
-    print("version:", from_bytes[int](set(seven, 4, 2)))
-    print("fingerprint:", from_bytes[int](set(seven, 5, seven[5] ^ 1)))
-    print("float for int:", from_bytes[float](seven))
+    show("good:", from_bytes[int](seven))
+    show("magic:", from_bytes[int](set(seven, 0, 0)))
+    show("version:", from_bytes[int](set(seven, 4, 2)))
+    show("fingerprint:", from_bytes[int](set(seven, 5, seven[5] ^ 1)))
+    show("float for int:", from_bytes[float](seven))
     let empty: list[u8] = []
-    print("empty:", from_bytes[int](empty))
-    print("header only:", from_bytes[int](cut(seven, 4)))
+    show("empty:", from_bytes[int](empty))
+    show("header only:", from_bytes[int](cut(seven, 4)))
 
     // Every way to end early.
     let g = Game(ball: vec2(1, 2), score: 3, name: "ana", xs: [4, 5])
     let gb = to_bytes(g)
-    print("game:", from_bytes[Game](gb))
-    print("game as replay:", from_bytes[Replay](gb))
+    show("game:", from_bytes[Game](gb))
+    show("game as replay:", from_bytes[Replay](gb))
     var early = 0
     for n from 1 to gb.len + 1 {
         if not reads_game(cut(gb, n)) { early += 1 }
@@ -74,84 +84,91 @@ main() {
     // One byte too many.
     var long = cut(gb, 0)
     long.add(0)
-    print("trailing:", from_bytes[Game](long))
+    show("trailing:", from_bytes[Game](long))
 
-    print("bool 2:", from_bytes[bool](set(to_bytes(true), 13, 2)))
+    show("bool 2:", from_bytes[bool](set(to_bytes(true), 13, 2)))
     let some_int: int? = 5
-    print("optional 2:", from_bytes[int?](set(to_bytes(some_int), 13, 2)))
-    print("bool 200:", from_bytes[bool](set(to_bytes(true), 13, 200)))
-    print("optional 200:", from_bytes[int?](set(to_bytes(some_int), 13, 200)))
-    print("variant 3:", from_bytes[Shape](set(to_bytes(Shape.Dot), 13, 3)))
-    print("variant 9:", from_bytes[Shape](set(to_bytes(Shape.Dot), 13, 9)))
-    print("variant past i32:", from_bytes[Shape](set_count(to_bytes(Shape.Dot), 13, 255, 255, 255, 255)))
+    match from_bytes[int?](set(to_bytes(some_int), 13, 2)) {
+        Ok o { print("optional 2:", o.value) }
+        Err e { print("optional 2:", e.error) }
+    }
+    show("bool 200:", from_bytes[bool](set(to_bytes(true), 13, 200)))
+    match from_bytes[int?](set(to_bytes(some_int), 13, 200)) {
+        Ok o { print("optional 200:", o.value) }
+        Err e { print("optional 200:", e.error) }
+    }
+    show("variant 3:", from_bytes[Shape](set(to_bytes(Shape.Dot), 13, 3)))
+    show("variant 9:", from_bytes[Shape](set(to_bytes(Shape.Dot), 13, 9)))
+    show("variant past i32:", from_bytes[Shape](set_count(to_bytes(Shape.Dot), 13, 255, 255, 255, 255)))
 
     // `"abc"`'s bytes as a lone byte 0xFF, and as an encoded surrogate (ED A0 80).
     let abc = to_bytes("abc")
-    print("utf-8 ff:", from_bytes[string](set(abc, 17, 255)))
-    print("utf-8 surrogate:", from_bytes[string](set(set(set(abc, 17, 237), 18, 160), 19, 128)))
-    print("utf-8 good:", from_bytes[string](abc))
+    show("utf-8 ff:", from_bytes[string](set(abc, 17, 255)))
+    show("utf-8 surrogate:", from_bytes[string](set(set(set(abc, 17, 237), 18, 160), 19, 128)))
+    show("utf-8 good:", from_bytes[string](abc))
 
     // A list claiming 2,147,483,647, 2,147,483,648 and 4,294,967,295 items in a 20-byte input.
     let nums: list[int] = []
     let nb = cut(to_bytes(nums), 0)
     var twenty = cut(nb, 0)
     for i from twenty.len to 20 { twenty.add(0) }
-    print("list:", from_bytes[list[int]](nb), twenty.len)
-    print("i32 max:", from_bytes[list[int]](set_count(twenty, 13, 255, 255, 255, 127)))
-    print("past i32:", from_bytes[list[int]](set_count(twenty, 13, 0, 0, 0, 128)))
-    print("u32 max:", from_bytes[list[u8]](set_count(twenty, 13, 255, 255, 255, 255)))
+    let read = from_bytes[list[int]](nb) else { return }
+    print("list:", read, twenty.len)
+    show("i32 max:", from_bytes[list[int]](set_count(twenty, 13, 255, 255, 255, 127)))
+    show("past i32:", from_bytes[list[int]](set_count(twenty, 13, 0, 0, 0, 128)))
+    show("u32 max:", from_bytes[list[int]](set_count(twenty, 13, 255, 255, 255, 255)))
     // Two `int`s don't fit in the 3 bytes left after the length; three `u8`s do, two leave one over.
-    print("too many items:", from_bytes[list[int]](set_count(twenty, 13, 2, 0, 0, 0)))
+    show("too many items:", from_bytes[list[int]](set_count(twenty, 13, 2, 0, 0, 0)))
     let bytes3: list[u8] = [7, 8, 9]
-    print("u8 items:", from_bytes[list[u8]](to_bytes(bytes3)))
-    print("u8 short:", from_bytes[list[u8]](set_count(to_bytes(bytes3), 13, 4, 0, 0, 0)))
-    print("u8 left over:", from_bytes[list[u8]](set_count(to_bytes(bytes3), 13, 2, 0, 0, 0)))
+    show("u8 items:", from_bytes[list[u8]](to_bytes(bytes3)))
+    show("u8 short:", from_bytes[list[u8]](set_count(to_bytes(bytes3), 13, 4, 0, 0, 0)))
+    show("u8 left over:", from_bytes[list[u8]](set_count(to_bytes(bytes3), 13, 2, 0, 0, 0)))
     let words: list[string] = ["a"]
-    print("string past:", from_bytes[list[string]](set_count(to_bytes(words), 17, 100, 0, 0, 0)))
-    print("strings past:", from_bytes[list[string]](set_count(to_bytes(words), 13, 255, 255, 255, 127)))
+    show("string past:", from_bytes[list[string]](set_count(to_bytes(words), 17, 100, 0, 0, 0)))
+    show("strings past:", from_bytes[list[string]](set_count(to_bytes(words), 13, 255, 255, 255, 127)))
     let arr: [int] = [1, 2]
-    print("array past:", from_bytes[[int]](set_count(to_bytes(arr), 13, 255, 255, 255, 127)))
+    show("array past:", from_bytes[[int]](set_count(to_bytes(arr), 13, 255, 255, 255, 127)))
     let counts = {"a": 1}
-    print("map past:", from_bytes[map[string, int]](set_count(to_bytes(counts), 13, 255, 255, 255, 127)))
+    show("map past:", from_bytes[map[string, int]](set_count(to_bytes(counts), 13, 255, 255, 255, 127)))
 
     // `{"a": 1, "b": 2}` with the second key written as "a".
     let two = {"a": 1, "b": 2}
     let tb = to_bytes(two)
-    print("map:", from_bytes[map[string, int]](tb))
-    print("duplicate key:", from_bytes[map[string, int]](set(tb, 30, 97)))
+    show("map:", from_bytes[map[string, int]](tb))
+    show("duplicate key:", from_bytes[map[string, int]](set(tb, 30, 97)))
 }
 // expect: good: 7
-// expect: magic: none
-// expect: version: none
-// expect: fingerprint: none
-// expect: float for int: none
-// expect: empty: none
-// expect: header only: none
+// expect: magic: the bytes aren't a saved value: they don't start with KESB
+// expect: version: the bytes were saved in format 2, and this Kestrel reads format 1
+// expect: fingerprint: the bytes hold another type, or another shape of `int`: a field was added, removed, renamed or changed
+// expect: float for int: the bytes hold another type, or another shape of `float`: a field was added, removed, renamed or changed
+// expect: empty: the bytes are too short to hold a saved value: 0 bytes, and the header alone is 13
+// expect: header only: the bytes end early, at byte 13 of 13
 // expect: game: Game(ball: vec2(x: 1, y: 2), score: 3, name: "ana", xs: [4, 5])
-// expect: game as replay: none
+// expect: game as replay: the bytes hold another type, or another shape of `Replay`: a field was added, removed, renamed or changed
 // expect: ends early: 44 of 44
-// expect: trailing: none
-// expect: bool 2: none
-// expect: optional 2: none
-// expect: bool 200: none
-// expect: optional 200: none
-// expect: variant 3: none
-// expect: variant 9: none
-// expect: variant past i32: none
-// expect: utf-8 ff: none
-// expect: utf-8 surrogate: none
+// expect: trailing: the value ends at byte 44, but there are 45 bytes
+// expect: bool 2: byte 13 should be 0 or 1
+// expect: optional 2: byte 13 should be 0 or 1
+// expect: bool 200: byte 13 should be 0 or 1
+// expect: optional 200: byte 13 should be 0 or 1
+// expect: variant 3: the variant number at byte 13 is past the end of its enum
+// expect: variant 9: the variant number at byte 13 is past the end of its enum
+// expect: variant past i32: the variant number at byte 13 is past the end of its enum
+// expect: utf-8 ff: the string at byte 13 isn't UTF-8 text
+// expect: utf-8 surrogate: the string at byte 13 isn't UTF-8 text
 // expect: utf-8 good: abc
 // expect: list: [] 20
-// expect: i32 max: none
-// expect: past i32: none
-// expect: u32 max: none
-// expect: too many items: none
+// expect: i32 max: the length at byte 13 is more than the bytes left can hold
+// expect: past i32: the length at byte 13 is more than the bytes left can hold
+// expect: u32 max: the length at byte 13 is more than the bytes left can hold
+// expect: too many items: the length at byte 13 is more than the bytes left can hold
 // expect: u8 items: [7, 8, 9]
-// expect: u8 short: none
-// expect: u8 left over: none
-// expect: string past: none
-// expect: strings past: none
-// expect: array past: none
-// expect: map past: none
+// expect: u8 short: the length at byte 13 is more than the bytes left can hold
+// expect: u8 left over: the value ends at byte 19, but there are 20 bytes
+// expect: string past: the length at byte 17 is more than the bytes left can hold
+// expect: strings past: the length at byte 13 is more than the bytes left can hold
+// expect: array past: the length at byte 13 is more than the bytes left can hold
+// expect: map past: the length at byte 13 is more than the bytes left can hold
 // expect: map: {"a": 1, "b": 2}
-// expect: duplicate key: none
+// expect: duplicate key: the map at byte 13 has a key twice
