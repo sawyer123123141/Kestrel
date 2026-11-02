@@ -1,3 +1,196 @@
+# The performance round (2026-11-01)
+
+**Partial: one line only.** The voxel engine's `bench.kes` was not measured (see "The voxel engine" below), and neither was the particles demo at 200,000 particles. Every other block is complete: `bench/2a`, `heightmap`, the voxel worlds, the kernels, generation, compile time and the determinism check.
+
+Measured 2026-11-01 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11) while the PC was free. No cargo, Godot or Roblox was running. Spec: `docs/superpowers/specs/2026-11-01-perf-round-design.md` ("Goals", "Measurements"); plan: `docs/superpowers/plans/2026-11-01-perf-round.md` (Task 10).
+
+There are two compilers, both release builds:
+- **old** is 1cf8342, the commit before the round, built in a `git worktree`.
+- **new** is a2aff35, the round's last commit.
+
+**Short version:** 6 of the 13 Goals rows meet their target:
+- `loop` 1.04x Rust, `step_index` 1.16x, `map` 1.00x, `filter` 0.78x, the frozen voxel world 1.04x.
+- The cases that needed no fix show no regression.
+
+7 rows miss:
+- `fib` 1.31x, against 1.3. It is inside the spec's honest worst case of 1.4x, and twice as fast as before.
+- `collatz` 1.57x, against 1.3. It was 1.97x.
+- `swarm` 1.65x, against 1.3. Unchanged.
+- `heightmap` 1.84x, against 1.5. It was 2.02x.
+- `copy` 2.10x, against 1.6. It was 3.14x.
+- `sort_by` 1.52x, against 1.3. It was 2.28x.
+- The race against `block-mesh`: faces 1.60x against 1.3, arrays 1.84x against 1.5. **The race's `--release` builds got slower**: faces by 16%, arrays by 4%. Its checked builds got 12-19% faster.
+
+The frozen world's checked build costs 1.04x its `--release` build, against a target of 1.03x; it was 1.12x. Voxel generation is 10% faster. The determinism programs print byte-identical output with both compilers, and so does every benchmark exe.
+
+| case | old | new | Rust | new ÷ Rust | spec target | met? |
+|---|---:|---:|---:|---:|---:|---|
+| `bench/2a` fib (ms) | 214.3 | 110.7 | 84.4 | 1.31 | 1.3 (1.4 worst case) | no, by 0.01 |
+| `bench/2a` collatz (ms) | 184.1 | 146.8 | 93.3 | 1.57 | 1.3 | **no** |
+| `bench/2a` loop (ms) | 551.2 | 551.0 | 529.1 | 1.04 | 1.1 | yes |
+| `bench/2a` swarm (ms) | 128.8 | 128.2 | 77.8 | 1.65 | 1.3 | **no** |
+| `heightmap`, whole run (ms) | 41.07 | 37.32 | 20.32 | 1.84 | 1.5 | **no** |
+| `copy.kes` (ns per item) | 0.66 | 0.44 | 0.21 | 2.10 | 1.6 | **no** |
+| `step_index.kes` (ns, against Rust step) | 5.65 | 4.35 | 3.75 | 1.16 | 1.2 | yes |
+| `map.kes` (ns) | 1.41 | 1.04 | 1.04 | 1.00 | 1.4 | yes |
+| `filter.kes` (ns) | 3.25 | 2.72 | 3.50 | 0.78 | 1.1 | yes |
+| `sort_by.kes` (ns) | 46.47 | 30.94 | 20.42 | 1.52 | 1.3 | **no** |
+| race faces `--release` (µs per chunk) | 67.8 | 78.5 | 49.0 | 1.60 | 1.3 | **no**, and slower |
+| race arrays `--release` (µs per chunk) | 102.6 | 107.1 | 58.1 | 1.84 | 1.5 | **no** |
+| frozen voxel world `--release` (ms, startup out) | 374.7 | 341.4 | 326.8 | 1.04 | 1.1 | yes |
+| frozen world, checked over `--release` | 1.12 | 1.04 | | | 1.03 | no, by 0.01 |
+| `step.kes`, `iface_*`, `noise_*`, mandelbrot, sieve, particles | | | | 1.00-1.12 | no regression beyond noise | yes |
+
+## How it was measured
+
+**Compilers:**
+- **old**: `C:/kt/oldt/release/kestrel.exe` and `kernels.exe`, built from a `git worktree` at 1cf8342 (`C:/kt/old`).
+- **new**: the main checkout's release `kestrel.exe` and `bench/kernels` harness, built at a2aff35. They were copied to `C:/kt/newbin` and `C:/kt/newk`, with the runtime and window libraries beside the exe.
+- Both compiled the same sources: a `git worktree` at a2aff35 (`C:/kt/new`).
+- The Rust and C exes are the ones already in `bench/2a` and `bench/heightmap` (rustc 1.97.0 `-C opt-level=3`; the checked rows with `-C overflow-checks=on`; gcc `-O2`).
+- The frozen world's Rust port is `C:/kt/voxtuned/rust/rs_rel.exe` (and `rs_chk.exe`), as in `bench/voxels3d/results.md`.
+
+**Method:**
+- Each block runs every variant once per round, old and new in turn. There are 5 rounds, and the job order is reversed on odd rounds.
+- Exes run at normal priority, one at a time, and are timed by `time.perf_counter` around the whole process.
+- The scripts are `C:/kt/p10/m.py` (2a, heightmap, voxels, compile, det) and `bench/determinism/measure.py` (`kernels --only ...`, `gen`, `engine`); `C:/kt/p10` is local only.
+- Each cell is the median of 5, with the range in brackets. The first round of every block ran colder (its maximum is the outlier in most ranges).
+- Every Kestrel exe of a workload printed the same as every other (old and new, checked and `--release`), or the block would have stopped. The Rust and C exes printed the same too.
+
+**Load** is the whole machine's CPU use over 2 s before and after each block, and over the block itself ("during"; one busy thread of 16 is 6.25%):
+
+| block | before | during | after |
+|---|---:|---:|---:|
+| `bench/2a` | 5.7% | 14.8% | 5.7% |
+| heightmap | 5.1% | 12.7% | 5.2% |
+| voxel worlds | 5.3% | 11.7% | 5.0% |
+| kernels: step / copy / filter / map | 4.5 / 5.1 / 5.0 / 13.9% | 12.5 / 11.4 / 14.9 / 14.0% | 5.8 / 5.0 / 9.6 / 0.5% |
+| kernels: sort_by / hp / race / noise | 0.9 / 7.7 / 5.8 / 10.6% | 8.8 / 13.8 / 14.2 / 13.7% | 7.1 / 6.6 / 6.7 / 6.7% |
+| generation | 7.7% | 13.0% | 6.4% |
+| compile | 5.6% | 11.4% | 5.9% |
+
+The `map` block's 13.9% before was a short spike. Its "during" figure is in line with the others, and its ranges are within 0.02 ns, so it was not redone.
+
+## `bench/2a` (whole runs, ms, startup of about 6 ms included)
+
+| workload | old checked | old `--release` | new checked | new `--release` | Rust release | Rust checks on | C gcc -O2 | new `--release` ÷ Rust |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| fib | 215.2 (213.3-246.9) | 214.3 (213.5-245.3) | 215.8 (212.9-250.4) | **110.7** (109.5-164.2) | 84.4 (81.8-192.4) | 144.3 | 53.7 | 1.31 |
+| loop | 551.0 (544.5-582.1) | 551.2 (544.3-591.2) | 551.3 (545.5-584.8) | 551.0 (545.1-582.8) | 529.1 (524.1-630.3) | 509.4 | 508.5 | 1.04 |
+| collatz | 193.7 (192.4-229.1) | 184.1 (181.6-215.8) | 197.7 (194.2-231.9) | **146.8** (145.6-181.4) | 93.3 (92.1-175.6) | 142.4 | 102.3 | 1.57 |
+| mandelbrot | 339.1 (335.9-372.0) | 338.9 (335.8-370.6) | 339.2 (336.1-374.4) | 338.4 (336.3-373.4) | 311.2 (310.8-459.1) | 315.9 | 312.2 | 1.09 |
+| sieve | 496.1 (467.1-552.1) | 499.4 (468.6-560.8) | 500.4 (459.2-547.8) | 516.1 (478.0-550.9) | 462.3 (438.3-711.5) | 461.3 | 464.8 | 1.12 |
+| swarm | 127.5 (126.1-164.4) | 128.8 (127.4-156.3) | 128.9 (125.8-164.1) | 128.2 (127.1-155.7) | 77.8 (72.6-106.3) | 76.1 | 89.5 | 1.65 |
+| particles | 124.0 (122.2-163.6) | 125.4 (123.8-160.0) | 123.8 (122.3-159.6) | 116.1 (114.4-148.7) | 296.6 (294.8-465.5) | 302.3 | 104.5 | 0.39 |
+
+- **fib `--release` is 1.94 times faster** (214 to 111 ms). It is now Rust's loop with one recursive call (decision 6). It is 1.31x Rust, against the 1.3 target and inside the 1.4 worst case. The checked build keeps the recursion, as designed.
+- **collatz `--release` is 1.25 times faster** (184 to 147 ms), but it is still 1.57x Rust. Its loop is branch-free: Rust's `test`/`sar`/`lea`/`cmov`, in `after-A/`.
+  - The one extra cost lane A found is that `collatz_len` now saves and restores `rsi` once per call.
+  - The rest of the gap was not traced in this measurement.
+  - The checked build keeps its overflow check on `3 * n + 1`, so it stays a branch and did not change (194 to 198 ms).
+- **swarm did not move** (129 to 128 ms, 1.65x Rust). Lane A limited float selects to register locals and constants, because swarm's bounce as selects measured slower: the branch is never mispredicted, since the bounce is almost never taken. So decision 2 leaves swarm's code as it was. Lane A found swarm's dumps identical before and after its change. Lane B's header caching raised swarm's whole-function header loads, by moving loads before loops and adding cold reloads, and this measurement shows no time change. Where its remaining gap to Rust lies was not traced here.
+- `loop` and `mandelbrot` are unchanged and inside their targets (1.04x and 1.09x).
+- `sieve` is +3% new against old in `--release`. The ranges overlap (469-561 against 478-551), and this machine is at its noisiest on `sieve` (`bench/kernels/results.md`). So this counts as noise, with no code change aimed at it.
+
+## `bench/heightmap` (whole runs, ms)
+
+| | old | new |
+|---|---:|---:|
+| Kestrel checked | 42.31 (41.73-80.43) | 37.74 (37.35-74.54) |
+| Kestrel `--release` | 41.07 (40.78-78.91) | **37.32** (36.84-73.67) |
+| Rust -O3 release | 20.32 (20.14-148.28) | |
+| Rust -O3 overflow checks on | 23.85 (23.45-99.31) | |
+
+The output is `columns: 262144 / tallest: 57 / checksum: 205794432` everywhere. `--release` is 9% faster: the `Block` enum stays in registers (decision 5) and `if h > tallest` became `smax` (decision 2). It is still 1.84x Rust against a target of 1.5x. The spec expected this miss: Rust vectorises the checksum loop (`heightmap/results.md`), and vectorising is a non-goal. Startup (about 6 ms) is a larger share of this program than of the others.
+
+## Kernels (ns per item, one thread, through the JIT; `bench/kernels`)
+
+| kernel | old | new | new ÷ old | Rust |
+|---|---:|---:|---:|---:|
+| `step.kes` | 4.34 (4.34-4.36) | 4.34 (4.32-4.34) | 1.00 | 3.75 |
+| `step_index.kes` | 5.65 (5.62-5.65) | **4.35** (4.34-4.35) | 0.77 | 3.75 (step) |
+| `step_scalar.kes` | 4.35 | 4.34 | 1.00 | |
+| `step_pow.kes` | 4.38 | 4.38 | 1.00 | |
+| `trig_step.kes` | 19.26 | 19.11 | 0.99 | |
+| `iface_step.kes` / `_direct` / `_generic` | 4.33 / 0.42 / 0.42 | 4.33 / 0.41 / 0.42 | 1.00 | 3.93 dyn / 0.05 direct |
+| `iface_hp.kes` / `_direct` | 4.18 / 0.42 | 4.18 / 0.42 | 1.00 | 3.70 dyn / 0.06 direct |
+| `copy.kes` | 0.66 (0.65-0.67) | **0.44** (0.43-0.45) | 0.67 | 0.21 |
+| `filter.kes` | 3.25 (3.24-3.30) | **2.72** (2.72-2.75) | 0.84 | 3.50 |
+| `filter_loop.kes` | 3.24 | 3.05 | 0.94 | |
+| `map.kes` | 1.41 (1.39-1.41) | **1.04** (1.04-1.05) | 0.74 | 1.04 |
+| `map_loop.kes` | 1.41 | 1.39 | 0.99 | |
+| `sort_by.kes` | 46.47 (46.16-47.39) | **30.94** (30.76-33.13) | 0.67 | 20.42 |
+| `sort_by_loop.kes` | 85.50 | 72.05 | 0.84 | |
+| `noise_scalar` / `noise_corners` / `noise_wide`, checked and `--release` | 6.75, 6.66 / 5.46, 5.43 / 2.70, 2.71 | the same to the hundredth | 1.00 | 6.12 scalar / 2.40 wide |
+| race faces checked (ns per chunk) | 85,137 (84,881-86,494) | 68,939 (68,815-69,223) | 0.81 | 49,039 |
+| race faces `--release` | 67,778 (67,417-68,419) | **78,513** (78,220-79,230) | **1.16** | 49,039 |
+| race arrays checked | 126,906 (126,653-127,010) | 111,013 (110,981-111,495) | 0.87 | 58,116 |
+| race arrays `--release` | 102,607 (101,875-103,854) | 107,114 (106,673-107,454) | **1.04** | 58,116 |
+
+- **`step_index.kes` now runs at the speed of `step.kes`** (4.35 against 4.34), as decision 4 expected: `parts[i]` is bound once per particle and promoted.
+- **`map.kes` equals Rust** (1.04 against 1.04): the headers stay in registers and the output list is reserved up front (decision 3). Rust vectorises this loop, and the spec's target was 1.4x.
+- **`filter.kes` is 16% faster and beats Rust** (2.72 against 3.50).
+- **`copy.kes` is a third faster but still 2.1x Rust.** Rust vectorises the copy. Kestrel's loop body no longer loads either header (`after-B/copy.bench.release.txt`), so what is left is one element per iteration against Rust's vector moves. This is the spec's expected miss: vectorising is a non-goal.
+- **`sort_by.kes` is a third faster but 1.52x Rust.** The spec expected 0.7-1.1x. Lane E's report says where the rest goes:
+  - about 5.6 ns of the 30.9 is the kernel's own copy and checksum;
+  - the radix sort takes six passes for keys in `[0, 1)`, whose digits all vary;
+  - the 16-byte items are permuted once at the end.
+- **The race's `--release` builds got slower** (faces 67.8 to 78.5 µs, arrays 102.6 to 107.1), while their checked builds got faster. In the new compiler, faces' checked build is faster than its `--release` build (68.9 against 78.5).
+  - The hot function is `race.find_faces`: one loop nest that `add`s to six lists. Its `--release` machine code (`kernels.exe ../../voxel/race_faces.kes --release --dump race.find_faces`, old and new, kept in `C:/kt/p10/dumps/`, local only) has 98 stack-memory operands in the new build against 87 in the old one, with 9 fewer loads of list fields in the IR (36 to 27).
+  - So the likely cause is decision 3: the six lists' headers are held in registers across the nest, and the registers spill. Lane B's cap of 3 cached `add`s per loop was never swept on these kernels (lane B's report, "Step 5 not run").
+  - Sweeping that cap is the next step. This needs a code change, so it was not done here.
+- `step`, `step_pow`, `trig_step`, every `iface_*` and every `noise_*` row are unchanged, as expected for kernels the round didn't target.
+
+## Voxel worlds (`bench/voxels3d`, whole runs, ms)
+
+| | old | new | new ÷ old |
+|---|---:|---:|---:|
+| frozen, checked | 426.4 (422.8-463.3) | **360.7** (357.5-479.7) | 0.85 |
+| frozen, `--release` | 380.8 (379.8-417.8) | **347.0** (346.5-442.4) | 0.91 |
+| tuned, checked | 308.9 (304.7-347.1) | 313.3 (312.1-351.3) | 1.01 |
+| tuned, `--release` | 305.6 (305.4-424.6) | 315.1 (312.1-350.5) | 1.03 |
+| empty world (startup), `--release` | 6.13 | 5.60 | |
+| Rust port, release / overflow checks on | 332.4 (330.8-377.5) / 342.9 (339.0-443.9) | | |
+
+Every world prints 463,749. With startup taken out (Kestrel's empty world, also used for Rust, as in `voxels3d/results.md`), the frozen `--release` world is 341.4 against Rust's 326.8: **1.04x Rust, where the target was 1.1x**. It was 1.13x on 2026-10-24. The frozen world's checked build is now 1.04x its `--release` build (355.1 against 341.4 net), against 1.12x before. The target was 1.03x:
+- the sample loop keeps two overflow checks on `cx * 32 + x - 1`, which depends on `x`, so they can be neither proven nor moved (lane D's report);
+- the mesher's offsets stay inside `if solid[i] == 1`.
+
+**The hand-tuned copy is 1-3% slower** (305.6 to 315.1 ms `--release`; the minima are 305.4 against 312.1). It is still 0.95x Rust's time. The tuned copy already does by hand what decisions 7 and 9 do, so the passes have nothing to gain there. I did not look at its dump. The 3% is the size of the layout effects this machine has shown before (`kernels/results.md`, "code layout"), and it is not a target. It is written down here as a possible small regression to check against an unused function placed before it.
+
+## Generation (`bench/determinism/measure.py gen`: 64 columns through `world.load_now`, `--release`, empty program subtracted)
+
+| | old | new |
+|---|---:|---:|
+| whole run | 311.1 (308.5-347.3) ms | 281.1 (280.8-319.3) ms |
+| net of the 6 ms set-up | 304.9 ms | **275.1 ms** (0.90 of old) |
+
+Both print 18,500.
+
+## The voxel engine (`bench.kes`): not measured this time
+
+One run is about 345 s (the 300 simulated seconds of the circle run in real time, because the hidden window was held to 60 fps on this run: every phase's median work was 16.6 ms). The block was stopped after one old run, with no new run, and that run is not reported. The generation block above stands in for the generator.
+
+## Compile time (`kestrel build --release`, link included, ms)
+
+| program | old | new | new ÷ old |
+|---|---:|---:|---:|
+| `voxel/main.kes` | 386.9 (340.8-448.2) | 339.4 (326.0-368.1) | 0.88 |
+| `demos/pong/pong.kes` | 266.4 (244.7-292.1) | 280.9 (258.0-343.2) | 1.06 |
+
+The two ranges overlap in both rows, and 5 runs of a 300 ms build on this machine move by 20-30%. So compile time is unchanged within the noise, as lane D's 5-run measurement found (`bench/voxels3d/main.kes` 320 against 319, `voxel/main.kes` 716 against 676 on a busier machine). It is not shown to be within 5%: Pong's median is 5.5% higher, but its minimum is 13 ms higher and its maximum 51 ms higher, so the run is too noisy to say.
+
+## Determinism
+
+The following print the same with the old and the new compiler, byte for byte (stdout, stderr and exit code):
+- every `tests/programs/det_*.kes` and `rollback_*.kes` program (16 programs), as checked and `--release` exes;
+- every exe timed above.
+
+The full suite at a2aff35 passes: 1,911 tests in 191 test binaries, 10 ignored. That includes:
+- the exe pass;
+- `determinism` (the results hash `wide_results_hash_is_pinned`, Pong's reference outputs, the `det_*` programs in JIT, checked exe and `--release` exe);
+- `cargo clippy --workspace --all-targets -- -D warnings`.
+
 # The rollback library (2026-11-01)
 
 Measured 2026-11-01 on the user's PC (Ryzen 7 5800X, 8 cores, 16 threads, Windows 11), the PC
